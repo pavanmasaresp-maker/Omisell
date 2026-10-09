@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>OmniSell</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-hero">
+    <div class="bar"></div>
+    <h1>OmniSell</h1>
+    <p>Ek baar likho. Har jagah bechho.</p>
+  </div>
+  <div class="login-card">
+    <h2>Sign in</h2>
+    <div id="login-err" class="err-box hidden"></div>
+    <div class="field-label">Username</div>
+    <input id="login-username" autocapitalize="none" />
+    <div class="field-label">Password</div>
+    <input id="login-password" type="password" />
+    <button class="btn" onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-screen" class="hidden">
+  <div class="topbar"><h1 id="topbar-title">Home</h1></div>
+  <div id="content"></div>
+  <div class="tabbar">
+    <div class="tab" data-tab="home" onclick="go('home')">Home</div>
+    <div class="tab" data-tab="products" onclick="go('products')">Products</div>
+    <div class="tab" data-tab="stock" onclick="go('stock')">Stock</div>
+    <div class="tab" data-tab="orders" onclick="go('orders')">Orders</div>
+    <div class="tab" data-tab="more" onclick="go('more')">More</div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

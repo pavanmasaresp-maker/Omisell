@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+node_modules/
+backend/.env
+backend/db.sqlite3
+mobile/android/
+mobile/www/config.js
+android/app/build/

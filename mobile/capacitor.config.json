@@ -1,0 +1,6 @@
+{
+  "appId": "com.omnisell.app",
+  "appName": "OmniSell",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
