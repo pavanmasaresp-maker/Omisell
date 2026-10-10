@@ -56,6 +56,16 @@ class ConnectionViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin,
         conn.save()
         return Response(ConnectionSerializer(conn).data)
 
+    @action(detail=True, methods=["post"], url_path="auto-process")
+    def set_auto_process(self, request, pk=None):
+        conn = self.get_object()
+        level = request.data.get("auto_process")
+        if level not in ("MANUAL", "CONFIRM", "PACK"):
+            return Response({"error": "auto_process MANUAL, CONFIRM ya PACK hona chahiye."}, status=400)
+        conn.auto_process = level
+        conn.save(update_fields=["auto_process"])
+        return Response(ConnectionSerializer(conn).data)
+
     @action(detail=True, methods=["post"], url_path="simulate-order")
     def simulate_order(self, request, pk=None):
         """Sirf DEMO channel: marketplace se nakli order aaya, bilkul asli import raste se."""

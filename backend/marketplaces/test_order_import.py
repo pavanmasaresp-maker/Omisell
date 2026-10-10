@@ -109,3 +109,38 @@ class OrderImportTests(TestCase):
         d = make_demo_order(self.conn, rng=random.Random(1))
         self.assertEqual(d["items"][0]["sku_code"], "S1")
         self.assertTrue(d["external_order_id"].startswith("DEMO-"))
+
+
+class AutoProcessTests(TestCase):
+    setUp = OrderImportTests.setUp
+    stock = OrderImportTests.stock
+    order = OrderImportTests.order
+
+    def set_level(self, level):
+        r = self.owner.post(f"/api/v1/channels/connections/{self.conn_id}/auto-process",
+                            {"auto_process": level}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.conn.refresh_from_db()
+
+    def test_manual_stays_imported(self):
+        self.stock(10)
+        o, _ = import_order(self.conn, self.order("A1"))
+        self.assertEqual(o.status, OrderStatus.IMPORTED)
+
+    def test_confirm_level(self):
+        self.stock(10)
+        self.set_level("CONFIRM")
+        o, _ = import_order(self.conn, self.order("A2"))
+        self.assertEqual(o.status, OrderStatus.CONFIRMED)
+
+    def test_pack_level_never_ships(self):
+        self.stock(10)
+        self.set_level("PACK")
+        o, _ = import_order(self.conn, self.order("A3"))
+        self.assertEqual(o.status, OrderStatus.PACKED)
+
+    def test_bad_level_and_permissions(self):
+        url = f"/api/v1/channels/connections/{self.conn_id}/auto-process"
+        self.assertEqual(self.owner.post(url, {"auto_process": "SHIP"}, format="json").status_code, 400)
+        self.assertIn(self.viewer.post(url, {"auto_process": "PACK"}, format="json").status_code, (403, 404))
+        self.assertEqual(self.other.post(url, {"auto_process": "PACK"}, format="json").status_code, 404)

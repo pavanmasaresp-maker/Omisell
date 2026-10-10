@@ -27,6 +27,9 @@ class ChannelConnection(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=300, blank=True)
+    # Marketplace se naya order aate hi kitna kaam apne aap ho (ship kabhi auto nahi: maal haath se pack hota hai)
+    auto_process = models.CharField(max_length=10, default="MANUAL",
+                                    choices=[("MANUAL", "MANUAL"), ("CONFIRM", "CONFIRM"), ("PACK", "PACK")])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

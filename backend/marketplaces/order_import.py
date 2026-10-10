@@ -7,7 +7,7 @@ import random
 
 from catalog.models import SKU
 from inventory.models import InventoryBalance
-from orders.services import OrderError, create_order
+from orders.services import OrderError, confirm_order, create_order, pack_order
 
 DEMO_CUSTOMERS = [("Ramesh Kumar", "9876500001", "Pune"), ("Sunita Devi", "9876500002", "Patna"),
                   ("Arjun Mehta", "9876500003", "Surat"), ("Fatima Khan", "9876500004", "Lucknow"),
@@ -28,11 +28,26 @@ def import_order(conn, data):
         lines.append({"sku": sku, "quantity": it["quantity"], "unit_price": it.get("unit_price", sku.price)})
     if missing:
         raise OrderError("Ye SKU hamare catalog mein nahi mile: " + ", ".join(missing))
-    return create_order(
+    order, created = create_order(
         tenant_id=conn.tenant_id, user=None, items=lines,
         customer_name=data.get("customer_name", ""), customer_phone=data.get("customer_phone", ""),
         shipping_address=data.get("shipping_address") or {}, channel_connection=conn,
         external_order_id=ext, idempotency_key=f"import:{conn.id}:{ext}")
+    if created:
+        auto_process(conn, order)
+    return order, created
+
+
+def auto_process(conn, order):
+    """Channel ki setting ke hisaab se naya order apne aap aage badhao. Fail ho to order IMPORTED hi rehta hai."""
+    level = getattr(conn, "auto_process", "MANUAL")
+    try:
+        if level in ("CONFIRM", "PACK"):
+            confirm_order(order, None)
+        if level == "PACK":
+            pack_order(order, None)
+    except OrderError:
+        pass
 
 
 def make_demo_order(conn, rng=random):

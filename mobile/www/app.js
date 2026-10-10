@@ -58,6 +58,7 @@ const api = {
   createConnection: (b) => post("/channels/connections", b),
   checkConnection: (id) => post(`/channels/connections/${id}/check`),
   deleteConnection: (id) => del(`/channels/connections/${id}`),
+  setAuto: (id, level) => post(`/channels/connections/${id}/auto-process`, { auto_process: level }),
   simulateOrder: (id) => post(`/channels/connections/${id}/simulate-order`),
   jobs: async () => list(await req("/channels/jobs")),
   retryJob: (id) => post(`/channels/jobs/${id}/retry`),
@@ -416,7 +417,7 @@ async function renderChannels() {
     content().innerHTML = `<button class="btn" style="margin-top:0" onclick="showConnect()">Connect a channel</button><div style="height:12px"></div>` +
       (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.shop_domain)}</div></div>${pill(i.status)}</div>
         ${i.last_error ? `<div class="err-text">${esc(i.last_error)}</div>` : ""}
-        <div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
+        <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div><div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
         : empty("Koi channel connected nahi", "Pehle Demo channel connect karke poora flow try kar sakte ho."));
   } catch (e) { content().innerHTML = errBanner(e.message); }
 }
@@ -447,6 +448,7 @@ function showConnect() {
     catch (er) { sheetErr(o, er.message); }
   });
 }
+async function setAuto(id, level) { try { await api.setAuto(id, level); toast("Setting save ho gayi"); renderChannels(); } catch (e) { toast(e.message, true); } }
 async function simulate(id, btn) {
   await busy(btn, async () => {
     try { const o = await api.simulateOrder(id); toast(`Nakli order aaya: ${o.order_number}. Orders tab mein dekho.`); }
