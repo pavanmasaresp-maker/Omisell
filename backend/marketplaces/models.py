@@ -10,6 +10,7 @@ from . import crypto
 class ChannelConnection(models.Model):
     class Channel(models.TextChoices):
         SHOPIFY = "SHOPIFY"
+        WOOCOMMERCE = "WOOCOMMERCE"
         DEMO = "DEMO"
 
     class Status(models.TextChoices):

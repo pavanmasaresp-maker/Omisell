@@ -14,11 +14,12 @@ CSRF_TRUSTED_ORIGINS = ["https://*.app.github.dev"]
 INSTALLED_APPS = [
     "django.contrib.admin", "django.contrib.auth", "django.contrib.contenttypes",
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
-    "rest_framework", "rest_framework.authtoken",
+    "rest_framework", "rest_framework.authtoken", "corsheaders",
     "tenants", "accounts", "catalog", "inventory", "marketplaces", "orders",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -55,3 +56,8 @@ REST_FRAMEWORK = {
 # Codespaces/Render proxy ke peeche https sahi pehchanne ke liye
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 APPEND_SLASH = False
+
+# Mobile app (Capacitor WebView: https://localhost) aur web preview (Codespaces/Expo
+# web, alag-alag random subdomains) dono alag origins se API call karte hain.
+# Auth Token header se hota hai (cookies se nahi), isliye yahan allow-all safe hai.
+CORS_ALLOW_ALL_ORIGINS = True

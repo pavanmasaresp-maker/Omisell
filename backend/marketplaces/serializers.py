@@ -5,6 +5,7 @@ from rest_framework import serializers
 from .models import ChannelConnection, ChannelListing, SyncJob
 
 SHOP_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.myshopify\.com$")
+SITE_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$")
 
 
 class ConnectionSerializer(serializers.ModelSerializer):
@@ -28,6 +29,16 @@ class ConnectionCreateSerializer(serializers.Serializer):
             if not SHOP_RE.match(d):
                 raise serializers.ValidationError(
                     {"shop_domain": "Aisa likho: mystore.myshopify.com"})
+            attrs["shop_domain"] = d
+        elif attrs["channel"] == "WOOCOMMERCE":
+            d = attrs["shop_domain"].strip().lower()
+            d = d.replace("https://", "").replace("http://", "").strip("/")
+            if not SITE_RE.match(d):
+                raise serializers.ValidationError(
+                    {"shop_domain": "Aisa likho: mystore.com (https wali site, bina / ke)"})
+            if ":" not in attrs["access_token"]:
+                raise serializers.ValidationError(
+                    {"access_token": "Aisa likho: consumer_key:consumer_secret"})
             attrs["shop_domain"] = d
         else:
             attrs["shop_domain"] = "demo"
