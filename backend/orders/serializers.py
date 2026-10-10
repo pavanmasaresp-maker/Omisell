@@ -21,10 +21,12 @@ class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     shipments = ShipmentSerializer(many=True, read_only=True)
     total_amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    channel = serializers.CharField(source="channel_connection.channel", read_only=True, default=None)
+    channel_name = serializers.CharField(source="channel_connection.name", read_only=True, default=None)
 
     class Meta:
         model = Order
-        fields = ["id", "order_number", "status", "channel_connection", "external_order_id",
+        fields = ["id", "order_number", "status", "channel_connection", "channel", "channel_name", "external_order_id",
                   "customer_name", "customer_phone", "shipping_address", "placed_at",
                   "total_amount", "items", "shipments"]
 

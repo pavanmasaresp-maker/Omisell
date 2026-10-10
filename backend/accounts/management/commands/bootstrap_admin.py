@@ -16,10 +16,17 @@ class Command(BaseCommand):
         if not username or not password:
             self.stdout.write("ADMIN_USERNAME / ADMIN_PASSWORD set nahi hain, skip.")
             return
-        if User.objects.filter(username=username).exists():
-            self.stdout.write(f"User '{username}' pehle se hai, skip.")
+        email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+        existing = User.objects.filter(username=username).first()
+        if existing:
+            if email and not existing.email:
+                existing.email = email
+                existing.save(update_fields=["email"])
+                self.stdout.write(f"User '{username}' pehle se hai, email set kiya.")
+            else:
+                self.stdout.write(f"User '{username}' pehle se hai, skip.")
             return
         tenant = Tenant.objects.create(name=os.environ.get("TENANT_NAME", "My Store"))
-        User.objects.create_user(username=username, password=password,
+        User.objects.create_user(username=username, password=password, email=email,
                                  tenant=tenant, role=Role.OWNER, is_staff=True, is_superuser=True)
         self.stdout.write(f"Owner '{username}' ban gaya.")

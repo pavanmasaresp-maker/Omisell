@@ -33,6 +33,8 @@ const post = send("POST"), patch = send("PATCH"), del = send("DELETE");
 const api = {
   login: (username, password) => post("/auth/login", { username, password }),
   me: () => req("/auth/me"),
+  googleLogin: (id_token) => post("/auth/google", { id_token }),
+  deleteAccount: () => del("/auth/me", { confirm: "DELETE" }),
   dashboard: () => req("/dashboard"),
   products: async (q = "") => list(await req("/products" + (q ? `?search=${encodeURIComponent(q)}` : ""))),
   updateProduct: (id, b) => patch(`/products/${id}`, b),
@@ -56,6 +58,7 @@ const api = {
   createConnection: (b) => post("/channels/connections", b),
   checkConnection: (id) => post(`/channels/connections/${id}/check`),
   deleteConnection: (id) => del(`/channels/connections/${id}`),
+  simulateOrder: (id) => post(`/channels/connections/${id}/simulate-order`),
   jobs: async () => list(await req("/channels/jobs")),
   retryJob: (id) => post(`/channels/jobs/${id}/retry`),
   listings: async () => list(await req("/channels/listings")),
@@ -102,8 +105,8 @@ function sheetErr(o, m) {
   b.textContent = m;
 }
 async function busy(btn, fn) {
-  const label = btn.textContent; btn.disabled = true; btn.textContent = "Please wait…";
-  try { await fn(); } finally { btn.disabled = false; btn.textContent = label; }
+  const label = btn.innerHTML; btn.disabled = true; btn.textContent = "Please wait…";
+  try { await fn(); } finally { btn.disabled = false; btn.innerHTML = label; }
 }
 
 // ================= auth =================
@@ -114,6 +117,26 @@ async function doLogin() {
   await busy($("login-btn"), async () => {
     try { const r = await api.login(u, p); saveToken(r.token); showApp(); }
     catch (e) { box.textContent = e.message; box.classList.remove("hidden"); }
+  });
+}
+const FA = (window.Capacitor && window.Capacitor.registerPlugin) ? window.Capacitor.registerPlugin("FirebaseAuthentication") : null;
+async function googleLogin() {
+  const box = $("login-err"); box.classList.add("hidden");
+  const fail = (m) => { box.textContent = m; box.classList.remove("hidden"); };
+  if (!FA || !(window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) {
+    return fail("Google login sirf phone ki app mein chalta hai. Browser mein neeche Admin login use karo.");
+  }
+  await busy($("google-btn"), async () => {
+    try {
+      await FA.signInWithGoogle();
+      const { token } = await FA.getIdToken({ forceRefresh: true });
+      const r = await api.googleLogin(token);
+      saveToken(r.token); showApp();
+    } catch (e) {
+      const m = String((e && e.message) || e || "");
+      if (/cancel/i.test(m)) return;
+      fail(m.includes("Server tak") ? m : "Google login nahi ho paya: " + m.slice(0, 160));
+    }
   });
 }
 async function checkAuth() {
@@ -128,7 +151,10 @@ function showApp() {
   $("login-screen").classList.add("hidden"); $("app-screen").classList.remove("hidden");
   go("home");
 }
-function logout() { clearToken(); showLogin(); }
+async function logout() {
+  try { if (FA) await FA.signOut(); } catch {}
+  clearToken(); showLogin();
+}
 
 // ================= navigation =================
 let view = "home", skuCache = [], orderFilter = "";
@@ -311,7 +337,7 @@ async function renderOrders(filter = "") {
     content().innerHTML = chips + `<button class="btn" style="margin-top:0;margin-bottom:12px" onclick="showAddOrder()">New order</button>` +
       (orders.length ? orders.map((o) => {
         const next = NEXT[o.status];
-        return `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(o.order_number)}</div><div class="small">${esc(o.customer_name || "Walk-in")}</div></div>
+        return `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(o.order_number)}</div><div class="small">${esc(o.customer_name || "Walk-in")}${o.channel_name ? ` · via ${esc(o.channel_name)}` : ""}</div></div>
           <div style="text-align:right">${pill(o.status)}<div class="name num" style="margin-top:6px">${money(o.total_amount)}</div></div></div>
           ${(o.items || []).map((li) => `<div class="small">${esc(li.sku_code)} × ${num(li.quantity)} @ ${money(li.unit_price)}</div>`).join("")}
           ${next || CANCELLABLE.includes(o.status) ? `<div class="row" style="margin-top:12px">
@@ -357,11 +383,31 @@ async function showAddOrder() {
 }
 
 // ================= More / Channels / Sync =================
-function renderMore() {
+async function renderMore() {
+  let me = {};
+  try { me = await api.me(); } catch {}
   content().innerHTML = `
-    <div class="card tap menu-item" onclick="go('channels')"><div><div class="name">Channels</div><div class="small">Shopify ya Demo store connect karo</div></div><span class="chev">›</span></div>
+    <div class="card"><div class="name">${esc(me.email || me.username || "Account")}</div><div class="small">${esc(String(me.role || "").replace("_", " ").toLowerCase())}</div></div>
+    <div class="card tap menu-item" onclick="go('channels')"><div><div class="name">Channels</div><div class="small">Shopify, WooCommerce ya Demo store connect karo</div></div><span class="chev">›</span></div>
     <div class="card tap menu-item" onclick="go('sync')"><div><div class="name">Sync</div><div class="small">Product publish karo, jobs dekho</div></div><span class="chev">›</span></div>
-    <button class="btn quiet" style="margin-top:14px;color:var(--danger)" onclick="logout()">Log out</button>`;
+    <button class="btn quiet" style="margin-top:14px" onclick="logout()">Log out</button>
+    <button class="btn quiet" style="margin-top:10px;color:var(--danger)" onclick="showDeleteAccount('${esc(me.role || "")}')">Delete account</button>`;
+}
+function showDeleteAccount(role) {
+  const owner = role === "OWNER";
+  const o = sheet(`<h3>Account delete karna hai?</h3>
+    <div class="small">${owner ? "Aapka poora store hat jayega: products, stock, orders, channels aur saare users. Ye wapas nahi aayega." : "Aapka login hat jayega. Store ka data rahega."}</div>
+    <label class="lbl">Confirm ke liye DELETE likho</label><input id="del-confirm" autocapitalize="characters" />
+    <div class="row sheet-actions" style="margin-top:16px"><button class="btn quiet" id="del-no">Rehne do</button><button class="btn danger" id="del-yes">Delete account</button></div>`);
+  o.querySelector("#del-no").onclick = () => o.remove();
+  o.querySelector("#del-yes").onclick = (e) => busy(e.target, async () => {
+    if (o.querySelector("#del-confirm").value.trim() !== "DELETE") return sheetErr(o, "DELETE likhna zaroori hai.");
+    try {
+      await api.deleteAccount();
+      try { if (FA) await FA.deleteUser(); } catch {}
+      clearToken(); o.remove(); showLogin(); toast("Account delete ho gaya");
+    } catch (er) { sheetErr(o, er.message); }
+  });
 }
 
 async function renderChannels() {
@@ -370,7 +416,7 @@ async function renderChannels() {
     content().innerHTML = `<button class="btn" style="margin-top:0" onclick="showConnect()">Connect a channel</button><div style="height:12px"></div>` +
       (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.shop_domain)}</div></div>${pill(i.status)}</div>
         ${i.last_error ? `<div class="err-text">${esc(i.last_error)}</div>` : ""}
-        <div class="row" style="margin-top:12px"><button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
+        <div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
         : empty("Koi channel connected nahi", "Pehle Demo channel connect karke poora flow try kar sakte ho."));
   } catch (e) { content().innerHTML = errBanner(e.message); }
 }
@@ -399,6 +445,12 @@ function showConnect() {
     if (!name || !tok) return sheetErr(o, "Naam aur token dono daalo.");
     try { await api.createConnection({ channel: ch, name, shop_domain: dom, access_token: tok }); o.remove(); toast("Channel connect ho gaya"); renderChannels(); }
     catch (er) { sheetErr(o, er.message); }
+  });
+}
+async function simulate(id, btn) {
+  await busy(btn, async () => {
+    try { const o = await api.simulateOrder(id); toast(`Nakli order aaya: ${o.order_number}. Orders tab mein dekho.`); }
+    catch (e) { toast(e.message, true); }
   });
 }
 async function recheck(id, btn) { await busy(btn, async () => { try { await api.checkConnection(id); renderChannels(); } catch (e) { toast(e.message, true); } }); }

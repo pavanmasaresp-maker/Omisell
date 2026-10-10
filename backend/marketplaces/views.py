@@ -12,7 +12,10 @@ from .models import ChannelConnection, ChannelListing, SyncJob
 from .permissions import ChannelPermission, SyncPermission
 from .serializers import (ConnectionCreateSerializer, ConnectionSerializer, JobSerializer,
                           ListingSerializer, PublishSerializer)
+from .order_import import import_order, make_demo_order
 from .sync import enqueue_publish
+from orders.serializers import OrderSerializer
+from orders.services import OrderError
 
 
 def run_check(conn):
@@ -52,6 +55,18 @@ class ConnectionViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin,
         run_check(conn)
         conn.save()
         return Response(ConnectionSerializer(conn).data)
+
+    @action(detail=True, methods=["post"], url_path="simulate-order")
+    def simulate_order(self, request, pk=None):
+        """Sirf DEMO channel: marketplace se nakli order aaya, bilkul asli import raste se."""
+        conn = self.get_object()
+        if conn.channel != ChannelConnection.Channel.DEMO:
+            return Response({"error": "Nakli order sirf Demo channel par bante hain."}, status=400)
+        try:
+            order, _ = import_order(conn, make_demo_order(conn))
+        except OrderError as e:
+            return Response({"error": str(e)}, status=400)
+        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
 
 class PublishView(APIView):

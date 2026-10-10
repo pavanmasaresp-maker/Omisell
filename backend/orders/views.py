@@ -18,8 +18,8 @@ class OrderViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
     serializer_class = OrderSerializer
 
     def get_queryset(self):
-        qs = Order.objects.filter(tenant_id=self.request.user.tenant_id).prefetch_related(
-            "items__sku", "shipments")
+        qs = Order.objects.filter(tenant_id=self.request.user.tenant_id).select_related(
+            "channel_connection").prefetch_related("items__sku", "shipments")
         st = self.request.query_params.get("status")
         return qs.filter(status=st) if st else qs
 

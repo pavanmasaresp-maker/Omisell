@@ -9,3 +9,5 @@ cryptography>=42
 django-cors-headers>=4.4
 gunicorn>=22.0
 whitenoise>=6.6
+google-auth>=2.30
+requests>=2.31
