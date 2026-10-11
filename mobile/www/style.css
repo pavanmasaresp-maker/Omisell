@@ -121,3 +121,7 @@ input:focus { border-color:var(--primary); box-shadow:0 0 0 3px var(--info-soft)
 .btn.google { display:flex; align-items:center; justify-content:center; gap:10px; background:#fff; color:var(--ink); border:1px solid var(--line); margin-top:4px; }
 details.alt { margin-top:18px; border-top:1px solid var(--line); padding-top:12px; }
 details.alt summary { font-size:13px; color:var(--ink-soft); font-weight:600; }
+
+.or { text-align:center; margin:16px 0 6px; font-size:12px; color:var(--ink-soft); position:relative; }
+.or span { background:#fff; padding:0 10px; position:relative; }
+.or:before { content:""; position:absolute; left:0; right:0; top:50%; border-top:1px solid var(--line); }

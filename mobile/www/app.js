@@ -124,8 +124,11 @@ const FA = (window.Capacitor && window.Capacitor.registerPlugin) ? window.Capaci
 async function googleLogin() {
   const box = $("login-err"); box.classList.add("hidden");
   const fail = (m) => { box.textContent = m; box.classList.remove("hidden"); };
-  if (!FA || !(window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) {
-    return fail("Google login sirf phone ki app mein chalta hai. Browser mein neeche Admin login use karo.");
+  const C = window.Capacitor;
+  let plat = "none";
+  try { plat = C ? (C.getPlatform ? C.getPlatform() : (C.isNativePlatform && C.isNativePlatform() ? "native" : "?")) : "none"; } catch (_) {}
+  if (!FA || plat === "web" || plat === "none") {
+    return fail("Google login sirf phone ki app mein chalta hai (platform: " + plat + "). Browser mein neeche Admin login use karo.");
   }
   await busy($("google-btn"), async () => {
     try {
@@ -137,6 +140,45 @@ async function googleLogin() {
       const m = String((e && e.message) || e || "");
       if (/cancel/i.test(m)) return;
       fail(m.includes("Server tak") ? m : "Google login nahi ho paya: " + m.slice(0, 160));
+    }
+  });
+}
+async function emailAuth(mode) {
+  const box = $("login-err"); box.classList.add("hidden");
+  const fail = (m) => { box.textContent = m; box.classList.remove("hidden"); };
+  const email = $("em-email").value.trim(), pass = $("em-pass").value;
+  if (!FA) return fail("Ye option sirf phone ki app mein chalta hai.");
+  if (!email) return fail("Email daalo.");
+  if (mode !== "reset" && pass.length < 6) return fail("Password kam se kam 6 akshar ka hona chahiye.");
+  const btn = $(mode === "in" ? "em-in" : mode === "up" ? "em-up" : "em-in");
+  await busy(btn, async () => {
+    try {
+      if (mode === "reset") {
+        await FA.sendPasswordResetEmail({ email });
+        return fail("Password reset ka link email par bhej diya. Inbox / spam dekho.");
+      }
+      if (mode === "up") {
+        await FA.createUserWithEmailAndPassword({ email, password: pass });
+        await FA.sendEmailVerification();
+        await FA.signOut();
+        return fail("Account ban gaya. Email par verify link bheja hai: use khol kar verify karo, phir Sign in dabao.");
+      }
+      const r = await FA.signInWithEmailAndPassword({ email, password: pass });
+      if (!r.user || !r.user.emailVerified) {
+        try { await FA.sendEmailVerification(); } catch (_) {}
+        await FA.signOut();
+        return fail("Email abhi verify nahi hui. Naya verify link bheja hai: inbox / spam dekho, verify karke dobara Sign in karo.");
+      }
+      const { token } = await FA.getIdToken({ forceRefresh: true });
+      const res = await api.googleLogin(token);
+      saveToken(res.token); showApp();
+    } catch (e) {
+      const m = String((e && (e.message || e.code)) || e || "");
+      if (/email-already-in-use/i.test(m)) fail("Is email se account pehle se hai. Sign in karo.");
+      else if (/invalid-credential|wrong-password|user-not-found|invalid-email/i.test(m)) fail("Email ya password galat hai.");
+      else if (/weak-password/i.test(m)) fail("Password kamzor hai, kam se kam 6 akshar rakho.");
+      else if (/too-many-requests/i.test(m)) fail("Bahut koshish ho gayi. Thodi der baad try karo.");
+      else fail(m.includes("Server tak") ? m : "Nahi ho paya: " + m.slice(0, 160));
     }
   });
 }

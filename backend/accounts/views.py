@@ -45,8 +45,8 @@ class GoogleLoginView(APIView):
 
         email = (claims.get("email") or "").strip().lower()
         provider = (claims.get("firebase") or {}).get("sign_in_provider")
-        if not email or not claims.get("email_verified") or provider != "google.com":
-            return Response({"error": "Sirf verified Google account se login ho sakta hai."}, status=400)
+        if not email or not claims.get("email_verified") or provider not in ("google.com", "password"):
+            return Response({"error": "Verified email ya Google account se hi login ho sakta hai."}, status=400)
 
         allowed = [e.strip().lower() for e in os.environ.get("FIREBASE_ALLOWED_EMAILS", "").split(",") if e.strip()]
         if allowed and email not in allowed:

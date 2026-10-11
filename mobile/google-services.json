@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "457148129537",
+    "project_id": "omnisell-b1bfc",
+    "storage_bucket": "omnisell-b1bfc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:457148129537:android:4005bb5740f04655e0bb00",
+        "android_client_info": {
+          "package_name": "com.omnisell.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "457148129537-3p0mn7f5kn81depv1iobebppfs4d0f3l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.omnisell.app",
+            "certificate_hash": "52c1c04a407884ce4abc7acd84333ffd89c16604"
+          }
+        },
+        {
+          "client_id": "457148129537-3sr5vrbq3ba6cqm4m7b5q7qoaufpuovq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGTuzWicKWH-cBJ0ziD5WtGH1NycoTHU4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "457148129537-3sr5vrbq3ba6cqm4m7b5q7qoaufpuovq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

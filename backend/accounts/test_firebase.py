@@ -54,8 +54,16 @@ class GoogleLoginTests(TestCase):
         self.assertEqual(self.post(claims(verified=False)).status_code, 400)
         self.assertFalse(User.objects.exists())
 
-    def test_non_google_provider_rejected(self):
-        self.assertEqual(self.post(claims(provider="password")).status_code, 400)
+    def test_unknown_provider_rejected(self):
+        self.assertEqual(self.post(claims(provider="anonymous")).status_code, 400)
+
+    def test_verified_email_password_login_works(self):
+        r = self.post(claims(provider="password"))
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(User.objects.filter(email="seller@gmail.com").exists())
+
+    def test_unverified_email_password_rejected(self):
+        self.assertEqual(self.post(claims(provider="password", verified=False)).status_code, 400)
         self.assertFalse(User.objects.exists())
 
     def test_invalid_token(self):
