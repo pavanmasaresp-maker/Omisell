@@ -5,6 +5,8 @@ Normalized order:
 Same external_order_id dobara aaye to duplicate order nahi banta (idempotent)."""
 import random
 
+from django.utils import timezone
+
 from catalog.models import SKU
 from inventory.models import InventoryBalance
 from orders.services import OrderError, confirm_order, create_order, pack_order
@@ -64,3 +66,36 @@ def make_demo_order(conn, rng=random):
     return {"external_order_id": f"DEMO-{rng.randint(10**7, 10**8 - 1)}", "customer_name": name,
             "customer_phone": phone, "shipping_address": {"city": city},
             "items": [{"sku_code": sku.sku_code, "quantity": qty, "unit_price": str(sku.price)}]}
+
+
+def pull_orders(conn):
+    """Marketplace se orders kheenchkar import karo. Duplicate nahi banta. Jo order import nahi ho paya
+    (jaise SKU catalog mein nahi) uski wajah list mein aati hai. Returns {"new", "existing", "failed"}.
+    AdapterError upar jaata hai (caller dikhaye)."""
+    from .adapters.registry import get_adapter
+    rows = get_adapter(conn).fetch_orders()
+    res = {"new": 0, "existing": 0, "failed": []}
+    for data in rows:
+        try:
+            _, created = import_order(conn, data)
+        except (OrderError, KeyError, ValueError) as e:
+            res["failed"].append({"order": str(data.get("external_order_id", "?")), "error": str(e)[:200]})
+            continue
+        res["new" if created else "existing"] += 1
+    return res
+
+
+def pull_all():
+    """Worker ke liye: har CONNECTED asli channel se orders. Ek channel fail ho to baaki chalte rehte hain."""
+    from .adapters.base import AdapterError
+    from .models import ChannelConnection
+    total = 0
+    qs = ChannelConnection.objects.filter(status=ChannelConnection.Status.CONNECTED).exclude(channel="DEMO")
+    for conn in qs:
+        try:
+            total += pull_orders(conn)["new"]
+        except AdapterError as e:
+            conn.last_error = str(e)[:300]
+            conn.last_checked_at = timezone.now()
+            conn.save(update_fields=["last_error", "last_checked_at"])
+    return total

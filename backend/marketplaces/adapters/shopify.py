@@ -38,6 +38,18 @@ mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
 }"""
 
 
+ORDERS_Q = """
+query($first: Int!) {
+  orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+    nodes {
+      id name cancelledAt phone
+      shippingAddress { name phone address1 address2 city province zip country }
+      lineItems(first: 50) { nodes { sku quantity originalUnitPriceSet { shopMoney { amount } } } }
+    }
+  }
+}"""
+
+
 class ShopifyAdapter(MarketplaceAdapter):
     """Shopify Admin GraphQL API. Auth header: X-Shopify-Access-Token.
     Token ko in scopes ki zaroorat hai: read_products, write_products,
@@ -193,3 +205,29 @@ class ShopifyAdapter(MarketplaceAdapter):
                                           "variants": [{"id": v["id"], "price": str(price)}]})
         self._check_user_errors(data["productVariantsBulkUpdate"]["userErrors"])
         return {"price": str(price)}
+
+    def fetch_orders(self):
+        """Recent 50 orders (read_orders scope chahiye). Cancelled orders chhod diye jate hain."""
+        try:
+            data = self._graphql(ORDERS_Q, {"first": 50})
+        except AdapterError as e:
+            if "scope" in str(e) or "permission" in str(e):
+                raise AdapterError("Shopify token ko read_orders permission (scope) chahiye.",
+                                   needs_action=True)
+            raise
+        out = []
+        for o in data["orders"]["nodes"]:
+            if o.get("cancelledAt"):
+                continue
+            ship = o.get("shippingAddress") or {}
+            items = []
+            for li in o["lineItems"]["nodes"]:
+                price = (((li.get("originalUnitPriceSet") or {}).get("shopMoney")) or {}).get("amount")
+                items.append({"sku_code": li.get("sku") or "", "quantity": li["quantity"],
+                              **({"unit_price": price} if price else {})})
+            out.append({
+                "external_order_id": o["name"].lstrip("#") if o.get("name") else o["id"],
+                "customer_name": ship.get("name", ""), "customer_phone": ship.get("phone") or o.get("phone") or "",
+                "shipping_address": {k: ship[k] for k in ("address1", "address2", "city", "province", "zip", "country") if ship.get(k)},
+                "items": items})
+        return out

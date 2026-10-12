@@ -59,6 +59,7 @@ const api = {
   checkConnection: (id) => post(`/channels/connections/${id}/check`),
   deleteConnection: (id) => del(`/channels/connections/${id}`),
   setAuto: (id, level) => post(`/channels/connections/${id}/auto-process`, { auto_process: level }),
+  pullOrders: (id) => post(`/channels/connections/${id}/pull-orders`),
   simulateOrder: (id) => post(`/channels/connections/${id}/simulate-order`),
   jobs: async () => list(await req("/channels/jobs")),
   retryJob: (id) => post(`/channels/jobs/${id}/retry`),
@@ -120,20 +121,27 @@ async function doLogin() {
     catch (e) { box.textContent = e.message; box.classList.remove("hidden"); }
   });
 }
-const FA = (window.Capacitor && window.Capacitor.registerPlugin) ? window.Capacitor.registerPlugin("FirebaseAuthentication") : null;
+// Plain-JS Capacitor: plugin proxy "Capacitor.Plugins.<Name>" se milta hai (registerPlugin sirf bundler wale apps mein hota hai).
+function getFA() {
+  const C = window.Capacitor;
+  if (!C) return null;
+  try { if (C.Plugins && C.Plugins.FirebaseAuthentication) return C.Plugins.FirebaseAuthentication; } catch (_) {}
+  try { if (typeof C.registerPlugin === "function") return C.registerPlugin("FirebaseAuthentication"); } catch (_) {}
+  return null;
+}
 async function googleLogin() {
   const box = $("login-err"); box.classList.add("hidden");
   const fail = (m) => { box.textContent = m; box.classList.remove("hidden"); };
   const C = window.Capacitor;
   let plat = "none";
   try { plat = C ? (C.getPlatform ? C.getPlatform() : (C.isNativePlatform && C.isNativePlatform() ? "native" : "?")) : "none"; } catch (_) {}
-  if (!FA || plat === "web" || plat === "none") {
+  if (!getFA() || plat === "web" || plat === "none") {
     return fail("Google login sirf phone ki app mein chalta hai (platform: " + plat + "). Browser mein neeche Admin login use karo.");
   }
   await busy($("google-btn"), async () => {
     try {
-      await FA.signInWithGoogle();
-      const { token } = await FA.getIdToken({ forceRefresh: true });
+      await getFA().signInWithGoogle();
+      const { token } = await getFA().getIdToken({ forceRefresh: true });
       const r = await api.googleLogin(token);
       saveToken(r.token); showApp();
     } catch (e) {
@@ -147,35 +155,38 @@ async function emailAuth(mode) {
   const box = $("login-err"); box.classList.add("hidden");
   const fail = (m) => { box.textContent = m; box.classList.remove("hidden"); };
   const email = $("em-email").value.trim(), pass = $("em-pass").value;
-  if (!FA) return fail("Ye option sirf phone ki app mein chalta hai.");
+  if (!getFA()) return fail("Ye option sirf phone ki app mein chalta hai.");
   if (!email) return fail("Email daalo.");
   if (mode !== "reset" && pass.length < 6) return fail("Password kam se kam 6 akshar ka hona chahiye.");
   const btn = $(mode === "in" ? "em-in" : mode === "up" ? "em-up" : "em-in");
   await busy(btn, async () => {
     try {
       if (mode === "reset") {
-        await FA.sendPasswordResetEmail({ email });
+        await getFA().sendPasswordResetEmail({ email });
         return fail("Password reset ka link email par bhej diya. Inbox / spam dekho.");
       }
       if (mode === "up") {
-        await FA.createUserWithEmailAndPassword({ email, password: pass });
-        await FA.sendEmailVerification();
-        await FA.signOut();
+        await getFA().createUserWithEmailAndPassword({ email, password: pass });
+        await getFA().sendEmailVerification();
+        await getFA().signOut();
         return fail("Account ban gaya. Email par verify link bheja hai: use khol kar verify karo, phir Sign in dabao.");
       }
-      const r = await FA.signInWithEmailAndPassword({ email, password: pass });
+      const r = await getFA().signInWithEmailAndPassword({ email, password: pass });
       if (!r.user || !r.user.emailVerified) {
-        try { await FA.sendEmailVerification(); } catch (_) {}
-        await FA.signOut();
+        try { await getFA().sendEmailVerification(); } catch (_) {}
+        await getFA().signOut();
         return fail("Email abhi verify nahi hui. Naya verify link bheja hai: inbox / spam dekho, verify karke dobara Sign in karo.");
       }
-      const { token } = await FA.getIdToken({ forceRefresh: true });
+      const { token } = await getFA().getIdToken({ forceRefresh: true });
       const res = await api.googleLogin(token);
       saveToken(res.token); showApp();
     } catch (e) {
       const m = String((e && (e.message || e.code)) || e || "");
       if (/email-already-in-use/i.test(m)) fail("Is email se account pehle se hai. Sign in karo.");
-      else if (/invalid-credential|wrong-password|user-not-found|invalid-email/i.test(m)) fail("Email ya password galat hai.");
+      else if (/invalid-credential|wrong-password|user-not-found|supplied auth credential|auth credential is incorrect|malformed or has expired|INVALID_LOGIN/i.test(m)) fail("Email ya password galat hai. Email ki spelling check karo (jaise gmail.com). Naya ho to pehle Create account dabao.");
+      else if (/invalid-email|badly formatted/i.test(m)) fail("Email sahi format mein nahi hai.");
+      else if (/network-request-failed|network error/i.test(m)) fail("Internet nahi chal raha. Check karke dobara try karo.");
+      else if (/user-disabled/i.test(m)) fail("Ye account band kar diya gaya hai.");
       else if (/weak-password/i.test(m)) fail("Password kamzor hai, kam se kam 6 akshar rakho.");
       else if (/too-many-requests/i.test(m)) fail("Bahut koshish ho gayi. Thodi der baad try karo.");
       else fail(m.includes("Server tak") ? m : "Nahi ho paya: " + m.slice(0, 160));
@@ -195,7 +206,7 @@ function showApp() {
   go("home");
 }
 async function logout() {
-  try { if (FA) await FA.signOut(); } catch {}
+  try { if (getFA()) await getFA().signOut(); } catch {}
   clearToken(); showLogin();
 }
 
@@ -433,6 +444,8 @@ async function renderMore() {
     <div class="card"><div class="name">${esc(me.email || me.username || "Account")}</div><div class="small">${esc(String(me.role || "").replace("_", " ").toLowerCase())}</div></div>
     <div class="card tap menu-item" onclick="go('channels')"><div><div class="name">Channels</div><div class="small">Shopify, WooCommerce ya Demo store connect karo</div></div><span class="chev">›</span></div>
     <div class="card tap menu-item" onclick="go('sync')"><div><div class="name">Sync</div><div class="small">Product publish karo, jobs dekho</div></div><span class="chev">›</span></div>
+    <div class="card tap menu-item" onclick="exportCsv('orders')"><div><div class="name">Export orders (CSV)</div><div class="small">Saare channels ke orders ek file mein</div></div><span class="chev">›</span></div>
+    <div class="card tap menu-item" onclick="exportCsv('stock')"><div><div class="name">Export stock (CSV)</div><div class="small">SKU wise stock</div></div><span class="chev">›</span></div>
     <button class="btn quiet" style="margin-top:14px" onclick="logout()">Log out</button>
     <button class="btn quiet" style="margin-top:10px;color:var(--danger)" onclick="showDeleteAccount('${esc(me.role || "")}')">Delete account</button>`;
 }
@@ -447,7 +460,7 @@ function showDeleteAccount(role) {
     if (o.querySelector("#del-confirm").value.trim() !== "DELETE") return sheetErr(o, "DELETE likhna zaroori hai.");
     try {
       await api.deleteAccount();
-      try { if (FA) await FA.deleteUser(); } catch {}
+      try { if (getFA()) await getFA().deleteUser(); } catch {}
       clearToken(); o.remove(); showLogin(); toast("Account delete ho gaya");
     } catch (er) { sheetErr(o, er.message); }
   });
@@ -459,7 +472,7 @@ async function renderChannels() {
     content().innerHTML = `<button class="btn" style="margin-top:0" onclick="showConnect()">Connect a channel</button><div style="height:12px"></div>` +
       (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.shop_domain)}</div></div>${pill(i.status)}</div>
         ${i.last_error ? `<div class="err-text">${esc(i.last_error)}</div>` : ""}
-        <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div><div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
+        <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div><div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}${i.channel !== "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="pullOrders('${i.id}',this)">Fetch orders</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
         : empty("Koi channel connected nahi", "Pehle Demo channel connect karke poora flow try kar sakte ho."));
   } catch (e) { content().innerHTML = errBanner(e.message); }
 }
@@ -496,6 +509,42 @@ async function simulate(id, btn) {
     try { const o = await api.simulateOrder(id); toast(`Nakli order aaya: ${o.order_number}. Orders tab mein dekho.`); }
     catch (e) { toast(e.message, true); }
   });
+}
+async function pullOrders(id, btn) {
+  await busy(btn, async () => {
+    try {
+      const r = await api.pullOrders(id);
+      const f = r.failed || [];
+      toast(`${r.new} naye order aaye` + (r.existing ? `, ${r.existing} pehle se the` : "") + (f.length ? `, ${f.length} nahi aa paye` : ""), f.length > 0 && r.new === 0);
+      if (f.length) {
+        sheet(`<h3>Ye orders nahi aa paye</h3><div class="small">Aksar wajah: SKU catalog mein nahi hai. Wahi SKU code se product banao, phir dobara Fetch karo.</div>` +
+          f.map((x) => `<div class="card"><div class="name">${esc(x.order)}</div><div class="err-text">${esc(x.error)}</div></div>`).join(""));
+      }
+      renderChannels();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+async function exportCsv(kind) {
+  try {
+    const res = await fetch(`${BASE}/export/${kind}.csv`, { headers: { Authorization: `Token ${getToken()}` } });
+    if (!res.ok) throw new Error("Export nahi ho paya (HTTP " + res.status + ").");
+    const text = await res.text();
+    const o = sheet(`<h3>${kind === "orders" ? "Orders" : "Stock"} CSV</h3><div class="small">Share dabao ya copy karke Sheets / Excel mein paste karo.</div>
+      <textarea id="csv-box" readonly rows="6" style="width:100%;margin-top:10px;font-size:12px"></textarea>
+      <div class="row sheet-actions" style="margin-top:14px"><button class="btn quiet" id="csv-copy">Copy</button><button class="btn" id="csv-share">Share file</button></div>`);
+    o.querySelector("#csv-box").value = text;
+    o.querySelector("#csv-copy").onclick = async () => {
+      try { await navigator.clipboard.writeText(text); toast("Copy ho gaya"); }
+      catch { const b = o.querySelector("#csv-box"); b.select(); toast("Text select ho gaya, copy kar lo"); }
+    };
+    o.querySelector("#csv-share").onclick = async () => {
+      try {
+        const f = new File([text], `${kind}.csv`, { type: "text/csv" });
+        if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: `${kind}.csv` });
+        else await navigator.share({ title: `${kind}.csv`, text });
+      } catch { toast("Share nahi hua. Copy use karo.", true); }
+    };
+  } catch (e) { toast(e.message, true); }
 }
 async function recheck(id, btn) { await busy(btn, async () => { try { await api.checkConnection(id); renderChannels(); } catch (e) { toast(e.message, true); } }); }
 function removeConn(id) {

@@ -3,9 +3,15 @@ from django.http import HttpResponse
 from django.urls import include, path
 from accounts.views import GoogleLoginView, LoginView, MeView
 from inventory.dashboard import DashboardView
+from . import public
+from .exports import OrdersCsvView, StockCsvView
 
 urlpatterns = [
     path("healthz", lambda request: HttpResponse("ok")),  # Render health check
+    path("privacy", public.privacy),
+    path("account-delete", public.account_delete),
+    path("api/v1/export/orders.csv", OrdersCsvView.as_view()),
+    path("api/v1/export/stock.csv", StockCsvView.as_view()),
     path("admin/", admin.site.urls),
     path("api/v1/auth/login", LoginView.as_view()),
     path("api/v1/auth/google", GoogleLoginView.as_view()),

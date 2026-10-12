@@ -170,3 +170,23 @@ class WooCommerceAdapter(MarketplaceAdapter):
         path = self._locate(external_id, sku_code)
         self._request("PUT", path, {"regular_price": str(price)})
         return {"price": str(price)}
+
+    def fetch_orders(self):
+        """Processing / on-hold orders (naye, jinhe bhejna baaki hai)."""
+        rows = self._request("GET", "/orders?per_page=50&status=processing,on-hold&orderby=date&order=desc")
+        out = []
+        for o in rows or []:
+            ship = o.get("shipping") or {}
+            bill = o.get("billing") or {}
+            name = (f"{ship.get('first_name', '')} {ship.get('last_name', '')}".strip()
+                    or f"{bill.get('first_name', '')} {bill.get('last_name', '')}".strip())
+            items = []
+            for li in o.get("line_items", []):
+                it = {"sku_code": li.get("sku") or "", "quantity": li.get("quantity", 1)}
+                if li.get("price") not in (None, ""):
+                    it["unit_price"] = str(li["price"])
+                items.append(it)
+            addr = {k: ship.get(k) for k in ("address_1", "address_2", "city", "state", "postcode", "country") if ship.get(k)}
+            out.append({"external_order_id": str(o.get("number") or o["id"]), "customer_name": name,
+                        "customer_phone": bill.get("phone", ""), "shipping_address": addr, "items": items})
+        return out

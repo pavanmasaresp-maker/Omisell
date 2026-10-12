@@ -12,7 +12,7 @@ from .models import ChannelConnection, ChannelListing, SyncJob
 from .permissions import ChannelPermission, SyncPermission
 from .serializers import (ConnectionCreateSerializer, ConnectionSerializer, JobSerializer,
                           ListingSerializer, PublishSerializer)
-from .order_import import import_order, make_demo_order
+from .order_import import import_order, make_demo_order, pull_orders
 from .sync import enqueue_publish
 from orders.serializers import OrderSerializer
 from orders.services import OrderError
@@ -65,6 +65,19 @@ class ConnectionViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin,
         conn.auto_process = level
         conn.save(update_fields=["auto_process"])
         return Response(ConnectionSerializer(conn).data)
+
+    @action(detail=True, methods=["post"], url_path="pull-orders")
+    def pull_orders_action(self, request, pk=None):
+        """Marketplace se naye orders abhi kheench lo."""
+        conn = self.get_object()
+        if conn.channel == ChannelConnection.Channel.DEMO:
+            return Response({"error": "Demo channel par 'Test order' use karo."}, status=400)
+        if conn.status != ChannelConnection.Status.CONNECTED:
+            return Response({"error": "Channel connected nahi hai. Pehle Check again karo."}, status=400)
+        try:
+            return Response(pull_orders(conn))
+        except AdapterError as e:
+            return Response({"error": str(e)}, status=400)
 
     @action(detail=True, methods=["post"], url_path="simulate-order")
     def simulate_order(self, request, pk=None):

@@ -33,3 +33,8 @@ class MarketplaceAdapter:
 
     def update_price(self, external_id: str, sku_code: str, price: str) -> dict:
         raise NotImplementedError
+
+    def fetch_orders(self) -> list:
+        """Marketplace ke naye/recent orders, normalized dict list (order_import.py ka format).
+        Jo adapter order pull nahi karta wo khali list deta hai."""
+        return []
