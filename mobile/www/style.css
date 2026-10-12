@@ -125,3 +125,24 @@ details.alt summary { font-size:13px; color:var(--ink-soft); font-weight:600; }
 .or { text-align:center; margin:16px 0 6px; font-size:12px; color:var(--ink-soft); position:relative; }
 .or span { background:#fff; padding:0 10px; position:relative; }
 .or:before { content:""; position:absolute; left:0; right:0; top:50%; border-top:1px solid var(--line); }
+
+/* language + tour */
+.langlist { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+.lang-row { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-radius:12px; background:var(--surface); border:1px solid var(--line); font-size:16px; font-weight:600; color:var(--ink); }
+.lang-row.on { border-color:var(--primary); background:var(--info-soft); }
+.login-langs { display:flex; gap:8px; justify-content:center; margin:0 0 12px; }
+.tour { position:fixed; inset:0; z-index:200; background:var(--bg); display:flex; flex-direction:column; padding:var(--top) 20px max(var(--bot),18px); }
+.tour-top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.tour-langs { display:flex; gap:6px; }
+.tour-skip { background:none; border:0; color:var(--ink-soft); font-size:15px; font-weight:600; padding:8px; }
+.tour-body { flex:1; display:flex; flex-direction:column; justify-content:center; text-align:center; padding:0 6px; }
+.tour-ic { width:96px; height:96px; border-radius:28px; background:var(--primary); margin:0 auto 24px; display:flex; align-items:center; justify-content:center; }
+.tour-ic svg { width:46px; height:46px; fill:none; stroke:#fff; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.tour h2 { margin:0 0 12px; font-size:24px; color:var(--ink); }
+.tour p { margin:0; font-size:16px; line-height:1.55; color:var(--ink-soft); }
+.tour-dots { display:flex; gap:7px; justify-content:center; margin:12px 0 16px; }
+.tour-dots i { width:8px; height:8px; border-radius:50%; background:var(--line); }
+.tour-dots i.on { width:22px; border-radius:6px; background:var(--primary); }
+.tour-nav { display:flex; gap:10px; justify-content:space-between; }
+.tour-nav .btn { margin-top:0; min-width:130px; }
+.tour-demo { background:none; border:0; color:var(--primary); font-weight:700; font-size:15px; padding:14px 0 0; }

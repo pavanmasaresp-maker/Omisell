@@ -204,6 +204,7 @@ function showLogin() {
 function showApp() {
   $("login-screen").classList.add("hidden"); $("app-screen").classList.remove("hidden");
   go("home");
+  if (window.Tour) Tour.maybe();
 }
 async function logout() {
   try { if (getFA()) await getFA().signOut(); } catch {}
@@ -214,7 +215,7 @@ async function logout() {
 let view = "home", skuCache = [], orderFilter = "";
 const TITLES = {
   home: ["Home", "Aapki dukaan ka aaj ka haal"], products: ["Products", ""], stock: ["Stock", "Kitna maal hai"],
-  orders: ["Orders", ""], more: ["More", ""], channels: ["Channels", "Jahan aap bechte ho"], sync: ["Sync", "Product channel par bhejo"],
+  orders: ["Orders", ""], more: ["More", ""], channels: ["Channels", "Jahan aap bechte ho"], sync: ["Sync", "Product channel par bhejo"], settings: ["Settings", "Bhasha, guide, account"],
 };
 const MAIN = ["home", "products", "stock", "orders", "more"];
 function go(v) {
@@ -225,7 +226,7 @@ function go(v) {
   $("topbar-title").textContent = TITLES[v][0]; $("topbar-sub").textContent = TITLES[v][1];
   content().scrollTop = 0; loading();
   ({ home: renderHome, products: () => renderProducts(""), stock: renderStock, orders: () => renderOrders(orderFilter),
-     more: renderMore, channels: renderChannels, sync: renderSync })[v]();
+     more: renderMore, channels: renderChannels, sync: renderSync, settings: renderSettings })[v]();
 }
 function goBack() { go("more"); }
 const setSub = (t) => ($("topbar-sub").textContent = t);
@@ -444,10 +445,19 @@ async function renderMore() {
     <div class="card"><div class="name">${esc(me.email || me.username || "Account")}</div><div class="small">${esc(String(me.role || "").replace("_", " ").toLowerCase())}</div></div>
     <div class="card tap menu-item" onclick="go('channels')"><div><div class="name">Channels</div><div class="small">Shopify, WooCommerce ya Demo store connect karo</div></div><span class="chev">›</span></div>
     <div class="card tap menu-item" onclick="go('sync')"><div><div class="name">Sync</div><div class="small">Product publish karo, jobs dekho</div></div><span class="chev">›</span></div>
+    <div class="card tap menu-item" onclick="go('settings')"><div><div class="name">Settings</div><div class="small">Language, App guide, Delete account</div></div><span class="chev">›</span></div>
     <div class="card tap menu-item" onclick="exportCsv('orders')"><div><div class="name">Export orders (CSV)</div><div class="small">Saare channels ke orders ek file mein</div></div><span class="chev">›</span></div>
     <div class="card tap menu-item" onclick="exportCsv('stock')"><div><div class="name">Export stock (CSV)</div><div class="small">SKU wise stock</div></div><span class="chev">›</span></div>
-    <button class="btn quiet" style="margin-top:14px" onclick="logout()">Log out</button>
-    <button class="btn quiet" style="margin-top:10px;color:var(--danger)" onclick="showDeleteAccount('${esc(me.role || "")}')">Delete account</button>`;
+    <button class="btn quiet" style="margin-top:14px" onclick="logout()">Log out</button>`;
+}
+async function renderSettings() {
+  let me = {};
+  try { me = await api.me(); } catch {}
+  const lang = (window.I18N && I18N.LANGS[I18N.lang]) || "";
+  content().innerHTML = `
+    <div class="card tap menu-item" onclick="I18N.langSheet()"><div><div class="name">Language</div><div class="small" data-no-i18n>${esc(lang)}</div></div><span class="chev">›</span></div>
+    <div class="card tap menu-item" onclick="Tour.start()"><div><div class="name">App guide</div><div class="small">App kaise use karni hai, dobara dekho</div></div><span class="chev">›</span></div>
+    <button class="btn quiet" style="margin-top:18px;color:var(--danger)" onclick="showDeleteAccount('${esc(me.role || "")}')">Delete account</button>`;
 }
 function showDeleteAccount(role) {
   const owner = role === "OWNER";
@@ -524,18 +534,48 @@ async function pullOrders(id, btn) {
     } catch (e) { toast(e.message, true); }
   });
 }
+function parseCsv(t) {
+  const rows = []; let r = [], f = "", q = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true;
+    else if (c === ",") { r.push(f); f = ""; }
+    else if (c === "\n") { r.push(f); rows.push(r); r = []; f = ""; }
+    else if (c !== "\r") f += c;
+  }
+  if (f || r.length) { r.push(f); rows.push(r); }
+  return rows.filter((x) => x.length > 1);
+}
+function csvList(kind, rows) {
+  const h = rows[0], data = rows.slice(1).map((r) => Object.fromEntries(h.map((k, i) => [k, r[i]])));
+  if (!data.length) return empty("Abhi kuch nahi hai", kind === "orders" ? "Order aane par yahan dikhega." : "Stock add karne par yahan dikhega.");
+  if (kind === "stock") {
+    const total = data.reduce((n, x) => n + (+x.available || 0), 0);
+    return `<div class="small" style="margin:4px 0 10px">${data.length} SKU · kul available ${total}</div>` + data.map((x) =>
+      `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(x.sku)}</div><div class="small">${esc(x.product)} · ${money(x.price)}</div></div>
+      <div style="text-align:right"><div class="name num">${esc(x.available)}</div><div class="small">${esc(x.on_hand)} haath mein · ${esc(x.reserved)} reserved</div></div></div></div>`).join("");
+  }
+  const by = new Map();
+  data.forEach((x) => { if (!by.has(x.order_number)) by.set(x.order_number, { ...x, lines: [] }); by.get(x.order_number).lines.push(x); });
+  const orders = [...by.values()];
+  const sum = orders.reduce((n, o) => n + o.lines.reduce((m, l) => m + (+l.line_total || 0), 0), 0);
+  return `<div class="small" style="margin:4px 0 10px">${orders.length} orders · kul ${money(sum)}</div>` + orders.map((o) =>
+    `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(o.order_number)}</div><div class="small">${esc(o.customer_name || "—")}${o.city ? " · " + esc(o.city) : ""}</div><div class="small">${esc(o.channel)} · ${esc(o.date)}</div></div>
+    <div style="text-align:right">${pill(o.status)}<div class="name num" style="margin-top:6px">${money(o.lines.reduce((m, l) => m + (+l.line_total || 0), 0))}</div></div></div>
+    <div class="small" style="margin-top:8px">${o.lines.map((l) => `${esc(l.sku)} × ${esc(l.quantity)}`).join(", ")}</div></div>`).join("");
+}
 async function exportCsv(kind) {
   try {
     const res = await fetch(`${BASE}/export/${kind}.csv`, { headers: { Authorization: `Token ${getToken()}` } });
     if (!res.ok) throw new Error("Export nahi ho paya (HTTP " + res.status + ").");
     const text = await res.text();
-    const o = sheet(`<h3>${kind === "orders" ? "Orders" : "Stock"} CSV</h3><div class="small">Share dabao ya copy karke Sheets / Excel mein paste karo.</div>
-      <textarea id="csv-box" readonly rows="6" style="width:100%;margin-top:10px;font-size:12px"></textarea>
-      <div class="row sheet-actions" style="margin-top:14px"><button class="btn quiet" id="csv-copy">Copy</button><button class="btn" id="csv-share">Share file</button></div>`);
-    o.querySelector("#csv-box").value = text;
+    const o = sheet(`<h3>${kind === "orders" ? "Orders" : "Stock"}</h3>
+      <div style="max-height:52vh;overflow-y:auto;margin:0 -4px;padding:0 4px">${csvList(kind, parseCsv(text))}</div>
+      <div class="row sheet-actions" style="margin-top:14px"><button class="btn quiet" id="csv-copy">Copy CSV</button><button class="btn" id="csv-share">Share file</button></div>`);
     o.querySelector("#csv-copy").onclick = async () => {
-      try { await navigator.clipboard.writeText(text); toast("Copy ho gaya"); }
-      catch { const b = o.querySelector("#csv-box"); b.select(); toast("Text select ho gaya, copy kar lo"); }
+      try { await navigator.clipboard.writeText(text); toast("Copy ho gaya. Sheets / Excel mein paste karo."); }
+      catch { toast("Copy nahi hua. Share file use karo.", true); }
     };
     o.querySelector("#csv-share").onclick = async () => {
       try {
