@@ -239,7 +239,7 @@ const setSub = (t) => ($("topbar-sub").textContent = t);
 
 // ================= Home (seller dashboard) =================
 let dashDays = 30, dashTab = "channels";
-const CH_ICON = { SHOPIFY: "🛍️", WOOCOMMERCE: "🌐", DEMO: "🧪", FILE: "📄", DIRECT: "🏪" };
+const CH_ICON = { FLIPKART: "🛒", SHOPIFY: "🛍️", WOOCOMMERCE: "🌐", DEMO: "🧪", FILE: "📄", DIRECT: "🏪" };
 const PIPE = [["IMPORTED", "Naya", "var(--info)"], ["CONFIRMED", "Confirmed", "var(--info)"], ["PACKED", "Packed", "var(--warn)"],
   ["SHIPPED", "Raste mein", "var(--accent)"], ["DELIVERED", "Delivered", "var(--ok)"], ["CANCELLED", "Cancel", "var(--danger)"], ["RETURNED", "Return", "var(--danger)"]];
 function setDash(k, v) { if (k === "days") dashDays = v; else dashTab = v; renderHome(); }
@@ -539,7 +539,7 @@ async function renderChannels() {
   try {
     const items = await api.connections();
     content().innerHTML = `<button class="btn" style="margin-top:0" onclick="showConnect()">Connect a channel</button><div style="height:12px"></div>` +
-      (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.channel === "FILE" ? "CSV file" : i.shop_domain)}</div></div>${pill(i.status)}</div>
+      (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.channel === "FILE" ? "CSV file" : i.channel === "FLIPKART" ? "Flipkart (Beta)" : i.shop_domain)}</div></div>${pill(i.status)}</div>
         ${i.last_error ? `<div class="err-text">${esc(i.last_error)}</div>` : ""}
         <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div>${i.channel !== "FILE" ? `<div class="row" style="margin-top:12px;gap:6px"><button class="chip ${i.auto_publish ? "on" : ""}" onclick="setAutoPublish('${i.id}',${!i.auto_publish})">Auto publish ${i.auto_publish ? "ON" : "OFF"}</button><button class="chip" onclick="publishAll('${i.id}',this)">Publish all products</button></div><div class="small muted" style="margin:6px 0 0">${i.auto_publish ? "Naya product ya badlav apne aap is channel par jayega." : "Product aap Sync se khud bhejoge."}</div>` : ""}<div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}${i.channel === "FILE" ? `<button class="btn sm grow" onclick="importCsv('${i.id}')">Import CSV</button>` : ""}${i.channel !== "DEMO" && i.channel !== "FILE" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="pullOrders('${i.id}',this)">Fetch orders</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
         : empty("Koi channel connected nahi", "Pehle Demo channel connect karke poora flow try kar sakte ho."));
@@ -547,7 +547,7 @@ async function renderChannels() {
 }
 function showConnect() {
   const o = sheet(`<h3>Connect a channel</h3>
-    <label class="lbl">Channel</label><div class="chips" id="cn-ch"><button class="chip on" data-v="DEMO">Demo (test)</button><button class="chip" data-v="SHOPIFY">Shopify</button><button class="chip" data-v="WOOCOMMERCE">WooCommerce</button><button class="chip" data-v="FILE">CSV file</button></div>
+    <label class="lbl">Channel</label><div class="chips" id="cn-ch"><button class="chip on" data-v="DEMO">Demo (test)</button><button class="chip" data-v="SHOPIFY">Shopify</button><button class="chip" data-v="WOOCOMMERCE">WooCommerce</button><button class="chip" data-v="FLIPKART">Flipkart (Beta)</button><button class="chip" data-v="FILE">CSV file</button></div>
     <label class="lbl">Name</label><input id="cn-name" placeholder="My Shopify store" />
     <div id="cn-dom-w" class="hidden"><label class="lbl">Store address</label><input id="cn-dom" autocapitalize="none" placeholder="mystore.myshopify.com" /><div class="hint" id="cn-dom-h"></div></div>
     <label class="lbl" id="cn-tok-l">Access token</label><input id="cn-tok" type="password" autocapitalize="none" /><div class="hint" id="cn-hint">Test ke liye "demo" likho.</div>
@@ -556,12 +556,13 @@ function showConnect() {
   let ch = "DEMO";
   o.querySelectorAll("#cn-ch .chip").forEach((c) => (c.onclick = () => {
     ch = c.dataset.v; o.querySelectorAll("#cn-ch .chip").forEach((x) => x.classList.toggle("on", x === c));
-    o.querySelector("#cn-dom-w").classList.toggle("hidden", ch === "DEMO" || ch === "FILE");
+    o.querySelector("#cn-dom-w").classList.toggle("hidden", ch === "DEMO" || ch === "FILE" || ch === "FLIPKART");
     ["#cn-tok-l", "#cn-tok", "#cn-hint"].forEach((q) => o.querySelector(q).classList.toggle("hidden", ch === "FILE"));
     o.querySelector("#cn-file-h").classList.toggle("hidden", ch !== "FILE");
     const H = {
       DEMO: ['Access token', 'Test ke liye "demo" likho.', "", ""],
       SHOPIFY: ["Access token", "Token encrypted save hota hai, wapas nahi dikhta.", "mystore.myshopify.com", ""],
+      FLIPKART: ["Application ID:Secret", "Format: application_id:application_secret (Flipkart seller panel > Developer Access). BETA: asli account par test baaki. Naya listing Flipkart panel se banao (SKU wahi rakho), app stock aur orders sambhalega.", "", ""],
       WOOCOMMERCE: ["API keys (key:secret)", "Format: consumer_key:consumer_secret. WooCommerce > Settings > Advanced > REST API se Read/Write key banao.", "mystore.com", "Sirf https wali site, bina https:// ke."],
     }[ch];
     o.querySelector("#cn-tok-l").textContent = H[0]; o.querySelector("#cn-hint").textContent = H[1];

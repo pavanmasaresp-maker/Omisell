@@ -25,7 +25,7 @@ class ConnectionCreateSerializer(serializers.Serializer):
     access_token = serializers.CharField(max_length=500, write_only=True, required=False, allow_blank=True, default="")
 
     def validate(self, attrs):
-        if attrs["channel"] in ("SHOPIFY", "WOOCOMMERCE") and not attrs["access_token"].strip():
+        if attrs["channel"] in ("SHOPIFY", "WOOCOMMERCE", "FLIPKART") and not attrs["access_token"].strip():
             raise serializers.ValidationError({"access_token": "Token zaroori hai."})
         if attrs["channel"] == "SHOPIFY":
             d = attrs["shop_domain"].strip().lower()
@@ -45,6 +45,11 @@ class ConnectionCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"access_token": "Aisa likho: consumer_key:consumer_secret"})
             attrs["shop_domain"] = d
+        elif attrs["channel"] == "FLIPKART":
+            if ":" not in attrs["access_token"]:
+                raise serializers.ValidationError(
+                    {"access_token": "Aisa likho: application_id:application_secret"})
+            attrs["shop_domain"] = "flipkart-" + (slugify(attrs["name"]) or "seller")[:60]
         elif attrs["channel"] == "FILE":
             attrs["shop_domain"] = "file-" + (slugify(attrs["name"]) or "csv")[:60]
         else:

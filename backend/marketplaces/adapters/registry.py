@@ -1,5 +1,6 @@
 from .demo import DemoAdapter
 from .file import FileAdapter
+from .flipkart import FlipkartAdapter
 from .shopify import ShopifyAdapter
 from .woocommerce import WooCommerceAdapter
 
@@ -11,6 +12,8 @@ def get_adapter(connection):
         return ShopifyAdapter(connection.shop_domain, token)
     if connection.channel == "WOOCOMMERCE":
         return WooCommerceAdapter(connection.shop_domain, token)
+    if connection.channel == "FLIPKART":
+        return FlipkartAdapter(connection.shop_domain, token)
     if connection.channel == "DEMO":
         return DemoAdapter(token)
     if connection.channel == "FILE":

@@ -12,6 +12,7 @@ class ChannelConnection(models.Model):
         SHOPIFY = "SHOPIFY"
         WOOCOMMERCE = "WOOCOMMERCE"
         DEMO = "DEMO"
+        FLIPKART = "FLIPKART"  # BETA: asli account par test baaki
         FILE = "FILE"  # CSV import: Meesho, Nykaa, Flipkart, Amazon... jinki API abhi nahi
 
     class Status(models.TextChoices):

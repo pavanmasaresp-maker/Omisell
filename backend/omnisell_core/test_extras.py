@@ -262,3 +262,18 @@ class OverviewTests(TestCase):
         other = client_for(make_user(Tenant.objects.create(name="O"), "oth", "OWNER"))
         d = other.get("/api/v1/dashboard/overview").json()
         self.assertEqual((d["totals"]["products"], d["channels"]), (0, []))
+
+
+class FlipkartConnectTests(TestCase):
+    def setUp(self):
+        self.api = client_for(make_user(Tenant.objects.create(name="T"), "own", "OWNER"))
+
+    def test_token_format_checked_and_connect_with_mock(self):
+        r = self.api.post("/api/v1/channels/connections", {"channel": "FLIPKART", "name": "FK",
+                          "access_token": "noColon"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        with mock.patch("marketplaces.adapters.flipkart.FlipkartAdapter.health_check", return_value={}):
+            r = self.api.post("/api/v1/channels/connections", {"channel": "FLIPKART", "name": "FK",
+                              "access_token": "app:secret"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["status"], "CONNECTED")
