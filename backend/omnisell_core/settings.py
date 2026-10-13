@@ -52,7 +52,7 @@ WSGI_APPLICATION = "omnisell_core.wsgi.application"
 
 DATABASES = {"default": dj_database_url.config(
     default=os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
-    conn_max_age=600)}
+    conn_max_age=600, conn_health_checks=True)}  # Neon autosuspend ke baad purani connection ko dobara jodta hai
 
 AUTH_USER_MODEL = "accounts.User"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

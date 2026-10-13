@@ -12,6 +12,7 @@ class ChannelConnection(models.Model):
         SHOPIFY = "SHOPIFY"
         WOOCOMMERCE = "WOOCOMMERCE"
         DEMO = "DEMO"
+        FILE = "FILE"  # CSV import: Meesho, Nykaa, Flipkart, Amazon... jinki API abhi nahi
 
     class Status(models.TextChoices):
         PENDING = "PENDING"
@@ -30,6 +31,8 @@ class ChannelConnection(models.Model):
     # Marketplace se naya order aate hi kitna kaam apne aap ho (ship kabhi auto nahi: maal haath se pack hota hai)
     auto_process = models.CharField(max_length=10, default="MANUAL",
                                     choices=[("MANUAL", "MANUAL"), ("CONFIRM", "CONFIRM"), ("PACK", "PACK")])
+    # Naya SKU bante hi product is channel par apne aap publish ho (Shopify / WooCommerce / Demo)
+    auto_publish = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

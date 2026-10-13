@@ -11,9 +11,9 @@ from catalog.models import Product
 from .models import ChannelConnection, ChannelListing, SyncJob
 from .permissions import ChannelPermission, SyncPermission
 from .serializers import (ConnectionCreateSerializer, ConnectionSerializer, JobSerializer,
-                          ListingSerializer, PublishSerializer)
-from .order_import import import_order, make_demo_order, pull_orders
-from .sync import enqueue_publish
+                          ImportOrdersSerializer, ListingSerializer, PublishSerializer)
+from .order_import import import_many, import_order, make_demo_order, pull_orders
+from .sync import enqueue_publish, publish_all
 from orders.serializers import OrderSerializer
 from orders.services import OrderError
 
@@ -66,18 +66,54 @@ class ConnectionViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin,
         conn.save(update_fields=["auto_process"])
         return Response(ConnectionSerializer(conn).data)
 
+    @action(detail=True, methods=["post"], url_path="auto-publish")
+    def set_auto_publish(self, request, pk=None):
+        conn = self.get_object()
+        if conn.channel == ChannelConnection.Channel.FILE:
+            return Response({"error": "CSV channel par publish nahi hota."}, status=400)
+        on = request.data.get("enabled")
+        if not isinstance(on, bool):
+            return Response({"error": "enabled true ya false hona chahiye."}, status=400)
+        conn.auto_publish = on
+        conn.save(update_fields=["auto_publish"])
+        return Response(ConnectionSerializer(conn).data)
+
+    @action(detail=True, methods=["post"], url_path="publish-all")
+    def publish_all_action(self, request, pk=None):
+        """Saare products is channel par bhejo (jobs queue mein jaate hain)."""
+        conn = self.get_object()
+        if conn.channel == ChannelConnection.Channel.FILE:
+            return Response({"error": "CSV channel par publish nahi hota."}, status=400)
+        if conn.status != ChannelConnection.Status.CONNECTED:
+            return Response({"error": "Channel connected nahi hai. Pehle Check again karo."}, status=400)
+        return Response(publish_all(conn))
+
     @action(detail=True, methods=["post"], url_path="pull-orders")
     def pull_orders_action(self, request, pk=None):
         """Marketplace se naye orders abhi kheench lo."""
         conn = self.get_object()
         if conn.channel == ChannelConnection.Channel.DEMO:
             return Response({"error": "Demo channel par 'Test order' use karo."}, status=400)
+        if conn.channel == ChannelConnection.Channel.FILE:
+            return Response({"error": "CSV channel par 'Import CSV' use karo."}, status=400)
         if conn.status != ChannelConnection.Status.CONNECTED:
             return Response({"error": "Channel connected nahi hai. Pehle Check again karo."}, status=400)
         try:
             return Response(pull_orders(conn))
         except AdapterError as e:
             return Response({"error": str(e)}, status=400)
+
+    @action(detail=True, methods=["post"], url_path="import-orders")
+    def import_orders_action(self, request, pk=None):
+        """CSV channel: app ne file padhkar orders bheje (max 200 ek baar mein)."""
+        conn = self.get_object()
+        if conn.channel != ChannelConnection.Channel.FILE:
+            return Response({"error": "Import sirf CSV channel par hota hai."}, status=400)
+        s = ImportOrdersSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        rows = [{**o, "items": [{**i, "unit_price": str(i["unit_price"])} if "unit_price" in i else dict(i)
+                                for i in o["items"]]} for o in s.validated_data["orders"]]
+        return Response(import_many(conn, rows))
 
     @action(detail=True, methods=["post"], url_path="simulate-order")
     def simulate_order(self, request, pk=None):
@@ -102,6 +138,8 @@ class PublishView(APIView):
         tid = request.user.tenant_id
         conn = get_object_or_404(ChannelConnection, id=s.validated_data["connection"], tenant_id=tid)
         product = get_object_or_404(Product, id=s.validated_data["product"], tenant_id=tid)
+        if conn.channel == ChannelConnection.Channel.FILE:
+            return Response({"error": "CSV channel par product publish nahi hota."}, status=400)
         if conn.status != ChannelConnection.Status.CONNECTED:
             return Response({"error": "Channel connected nahi hai. Channels mein Re-check karo."},
                             status=status.HTTP_400_BAD_REQUEST)

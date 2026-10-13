@@ -1,4 +1,5 @@
 from .demo import DemoAdapter
+from .file import FileAdapter
 from .shopify import ShopifyAdapter
 from .woocommerce import WooCommerceAdapter
 
@@ -12,4 +13,6 @@ def get_adapter(connection):
         return WooCommerceAdapter(connection.shop_domain, token)
     if connection.channel == "DEMO":
         return DemoAdapter(token)
+    if connection.channel == "FILE":
+        return FileAdapter(token)
     raise ValueError("Unknown channel")

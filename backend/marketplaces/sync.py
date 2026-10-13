@@ -35,11 +35,12 @@ def product_payload(product):
             "brand": product.brand, "status": product.status, "skus": skus}
 
 
-def enqueue_publish(connection, product):
-    """Idempotent: same product version ke liye dobara call karne par wahi job milta hai."""
+def enqueue_publish(connection, product, salt=""):
+    """Idempotent: same product version ke liye dobara call karne par wahi job milta hai.
+    salt: product ke andar ki cheez (jaise naya SKU / badla hua price) badli ho to nayi job chahiye."""
     listing, _ = ChannelListing.objects.get_or_create(
         tenant_id=connection.tenant_id, connection=connection, product=product)
-    key = f"publish:{connection.id}:{product.id}:{product.version}"
+    key = f"publish:{connection.id}:{product.id}:{product.version}" + (f":{salt}" if salt else "")
     job, created = SyncJob.objects.get_or_create(
         tenant_id=connection.tenant_id, idempotency_key=key,
         defaults={"connection": connection, "listing": listing,
@@ -49,6 +50,35 @@ def enqueue_publish(connection, product):
         listing.last_error = ""
         listing.save()
     return job, created
+
+
+def publish_all(connection):
+    """Tenant ke saare products (jinka kam se kam ek SKU ho) is channel par bhejne ke jobs. Returns {"queued", "no_sku"}."""
+    from catalog.models import Product
+    res = {"queued": 0, "no_sku": 0}
+    for p in Product.objects.filter(tenant_id=connection.tenant_id).prefetch_related("variants__skus"):
+        if not any(v.skus.all() for v in p.variants.all()):
+            res["no_sku"] += 1
+            continue
+        _, created = enqueue_publish(connection, p)
+        res["queued"] += 1 if created else 0
+    return res
+
+
+def auto_publish_product(product, salt=""):
+    """Jin channels par Auto publish ON hai wahan ye product bhejo. Kabhi exception upar nahi jaata.
+    SKU ke bina product nahi bhejte (marketplace use reject karega)."""
+    from .models import ChannelConnection
+    try:
+        if not product.variants.filter(skus__isnull=False).exists():
+            return
+        conns = ChannelConnection.objects.filter(
+            tenant_id=product.tenant_id, auto_publish=True,
+            status=ChannelConnection.Status.CONNECTED).exclude(channel="FILE")
+        for c in conns:
+            enqueue_publish(c, product, salt)
+    except Exception:  # SKU banna kabhi na rukey
+        log.exception("auto publish failed for product %s", product.id)
 
 
 def enqueue_inventory_sync(tenant_id, sku_id, entry_id):

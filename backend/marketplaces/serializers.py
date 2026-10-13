@@ -1,5 +1,7 @@
 import re
 
+from django.utils.text import slugify
+
 from rest_framework import serializers
 
 from .models import ChannelConnection, ChannelListing, SyncJob
@@ -12,16 +14,18 @@ class ConnectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChannelConnection
         fields = ["id", "channel", "name", "shop_domain", "status",
-                  "last_checked_at", "last_error", "auto_process", "created_at"]
+                  "last_checked_at", "last_error", "auto_process", "auto_publish", "created_at"]
 
 
 class ConnectionCreateSerializer(serializers.Serializer):
     channel = serializers.ChoiceField(choices=ChannelConnection.Channel.choices)
     name = serializers.CharField(max_length=120)
     shop_domain = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
-    access_token = serializers.CharField(max_length=500, write_only=True)
+    access_token = serializers.CharField(max_length=500, write_only=True, required=False, allow_blank=True, default="")
 
     def validate(self, attrs):
+        if attrs["channel"] in ("SHOPIFY", "WOOCOMMERCE") and not attrs["access_token"].strip():
+            raise serializers.ValidationError({"access_token": "Token zaroori hai."})
         if attrs["channel"] == "SHOPIFY":
             d = attrs["shop_domain"].strip().lower()
             d = d.replace("https://", "").replace("http://", "").strip("/")
@@ -40,6 +44,8 @@ class ConnectionCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"access_token": "Aisa likho: consumer_key:consumer_secret"})
             attrs["shop_domain"] = d
+        elif attrs["channel"] == "FILE":
+            attrs["shop_domain"] = "file-" + (slugify(attrs["name"]) or "csv")[:60]
         else:
             attrs["shop_domain"] = "demo"
         tenant_id = self.context["request"].user.tenant_id
@@ -81,3 +87,22 @@ class JobSerializer(serializers.ModelSerializer):
 
     def get_sku_code(self, obj):
         return obj.sku.sku_code if obj.sku else ""
+
+
+class ImportLineSerializer(serializers.Serializer):
+    sku_code = serializers.CharField(max_length=100)
+    quantity = serializers.IntegerField(min_value=1, max_value=100000)
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, min_value=0)
+
+
+class ImportOrderSerializer(serializers.Serializer):
+    external_order_id = serializers.CharField(max_length=200)
+    customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+    customer_phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
+    shipping_address = serializers.DictField(child=serializers.CharField(allow_blank=True, max_length=200),
+                                             required=False, default=dict)
+    items = ImportLineSerializer(many=True, allow_empty=False)
+
+
+class ImportOrdersSerializer(serializers.Serializer):
+    orders = ImportOrderSerializer(many=True, allow_empty=False, max_length=200)

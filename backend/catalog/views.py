@@ -9,7 +9,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import CatalogPermission
-from inventory.models import EntryType
+from inventory.models import EntryType, InventoryBalance, InventoryLedger
+from orders.models import OrderItem
 from inventory.services import InventoryError, apply_entry
 from .models import SKU, Category, Product, ProductMedia, Variant
 from .serializers import (CategorySerializer, MediaSerializer, ProductSerializer,
@@ -54,6 +55,19 @@ class ProductViewSet(TenantScopedViewSet):
             qs = qs.filter(Q(title__icontains=search) |
                            Q(variants__skus__sku_code__icontains=search)).distinct()
         return qs
+
+    def destroy(self, request, *args, **kwargs):
+        """Product delete: orders hon to nahi (ARCHIVED karo). Sirf stock history ho to wo bhi saath hat jaati hai."""
+        product = self.get_object()
+        sku_ids = list(SKU.objects.filter(variant__product=product).values_list("id", flat=True))
+        if OrderItem.objects.filter(sku_id__in=sku_ids).exists():
+            return Response({"error": "Is product ke orders hain, isliye delete nahi ho sakta. "
+                                      "Product ko ARCHIVED kar do.", "code": "HAS_ORDERS"}, status=409)
+        with transaction.atomic():
+            InventoryLedger.objects.filter(sku_id__in=sku_ids).delete()
+            InventoryBalance.objects.filter(sku_id__in=sku_ids).delete()
+            product.delete()
+        return Response(status=204)
 
 
 class VariantViewSet(TenantScopedViewSet):

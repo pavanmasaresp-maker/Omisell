@@ -73,7 +73,11 @@ def pull_orders(conn):
     (jaise SKU catalog mein nahi) uski wajah list mein aati hai. Returns {"new", "existing", "failed"}.
     AdapterError upar jaata hai (caller dikhaye)."""
     from .adapters.registry import get_adapter
-    rows = get_adapter(conn).fetch_orders()
+    return import_many(conn, get_adapter(conn).fetch_orders())
+
+
+def import_many(conn, rows):
+    """Orders ki list import karo (API se aayi ho ya CSV se). Returns {"new", "existing", "failed"}."""
     res = {"new": 0, "existing": 0, "failed": []}
     for data in rows:
         try:
@@ -90,7 +94,7 @@ def pull_all():
     from .adapters.base import AdapterError
     from .models import ChannelConnection
     total = 0
-    qs = ChannelConnection.objects.filter(status=ChannelConnection.Status.CONNECTED).exclude(channel="DEMO")
+    qs = ChannelConnection.objects.filter(status=ChannelConnection.Status.CONNECTED).exclude(channel__in=("DEMO", "FILE"))
     for conn in qs:
         try:
             total += pull_orders(conn)["new"]

@@ -59,6 +59,9 @@ const api = {
   checkConnection: (id) => post(`/channels/connections/${id}/check`),
   deleteConnection: (id) => del(`/channels/connections/${id}`),
   setAuto: (id, level) => post(`/channels/connections/${id}/auto-process`, { auto_process: level }),
+  setAutoPublish: (id, enabled) => post(`/channels/connections/${id}/auto-publish`, { enabled }),
+  publishAll: (id) => post(`/channels/connections/${id}/publish-all`),
+  importOrders: (id, orders) => post(`/channels/connections/${id}/import-orders`, { orders }),
   pullOrders: (id) => post(`/channels/connections/${id}/pull-orders`),
   simulateOrder: (id) => post(`/channels/connections/${id}/simulate-order`),
   jobs: async () => list(await req("/channels/jobs")),
@@ -314,11 +317,22 @@ async function saveProduct(id, btn) {
 function removeProduct(id) {
   const p = (window._products || []).find((x) => x.id === id);
   const o = sheet(`<h3>Product delete karna hai?</h3><div class="small">${esc(p ? p.title : "")}</div>
+    <div class="small" style="margin-top:8px">Iski stock history bhi hat jayegi. Jis marketplace par ye laga hai wahan se use khud hatana hoga.</div>
     <div class="row sheet-actions" style="margin-top:16px"><button class="btn quiet" id="d-no">Rehne do</button><button class="btn danger" id="d-yes">Delete</button></div>`);
   o.querySelector("#d-no").onclick = () => o.remove();
   o.querySelector("#d-yes").onclick = (e) => busy(e.target, async () => {
     try { await api.deleteProduct(id); o.remove(); openProduct = null; toast("Deleted"); renderProducts(prodSearch); }
-    catch (er) { sheetErr(o, er.message); }
+    catch (er) {
+      sheetErr(o, er.message);
+      if (/ARCHIVED/.test(er.message) && !o.querySelector("#d-arch")) {
+        const b = document.createElement("button"); b.className = "btn"; b.id = "d-arch"; b.style.marginTop = "10px"; b.textContent = "Archive karo";
+        o.querySelector(".sheet").appendChild(b);
+        b.onclick = () => busy(b, async () => {
+          try { await api.updateProduct(id, { status: "ARCHIVED" }); o.remove(); openProduct = null; toast("Archive ho gaya"); renderProducts(prodSearch); }
+          catch (e2) { sheetErr(o, e2.message); }
+        });
+      }
+    }
   });
 }
 function showAddProduct() {
@@ -480,23 +494,26 @@ async function renderChannels() {
   try {
     const items = await api.connections();
     content().innerHTML = `<button class="btn" style="margin-top:0" onclick="showConnect()">Connect a channel</button><div style="height:12px"></div>` +
-      (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.shop_domain)}</div></div>${pill(i.status)}</div>
+      (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.channel === "FILE" ? "CSV file" : i.shop_domain)}</div></div>${pill(i.status)}</div>
         ${i.last_error ? `<div class="err-text">${esc(i.last_error)}</div>` : ""}
-        <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div><div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}${i.channel !== "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="pullOrders('${i.id}',this)">Fetch orders</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
+        <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div>${i.channel !== "FILE" ? `<div class="row" style="margin-top:12px;gap:6px"><button class="chip ${i.auto_publish ? "on" : ""}" onclick="setAutoPublish('${i.id}',${!i.auto_publish})">Auto publish ${i.auto_publish ? "ON" : "OFF"}</button><button class="chip" onclick="publishAll('${i.id}',this)">Publish all products</button></div><div class="small muted" style="margin:6px 0 0">${i.auto_publish ? "Naya product ya badlav apne aap is channel par jayega." : "Product aap Sync se khud bhejoge."}</div>` : ""}<div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}${i.channel === "FILE" ? `<button class="btn sm grow" onclick="importCsv('${i.id}')">Import CSV</button>` : ""}${i.channel !== "DEMO" && i.channel !== "FILE" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="pullOrders('${i.id}',this)">Fetch orders</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
         : empty("Koi channel connected nahi", "Pehle Demo channel connect karke poora flow try kar sakte ho."));
   } catch (e) { content().innerHTML = errBanner(e.message); }
 }
 function showConnect() {
   const o = sheet(`<h3>Connect a channel</h3>
-    <label class="lbl">Channel</label><div class="chips" id="cn-ch"><button class="chip on" data-v="DEMO">Demo (test)</button><button class="chip" data-v="SHOPIFY">Shopify</button><button class="chip" data-v="WOOCOMMERCE">WooCommerce</button></div>
+    <label class="lbl">Channel</label><div class="chips" id="cn-ch"><button class="chip on" data-v="DEMO">Demo (test)</button><button class="chip" data-v="SHOPIFY">Shopify</button><button class="chip" data-v="WOOCOMMERCE">WooCommerce</button><button class="chip" data-v="FILE">CSV file</button></div>
     <label class="lbl">Name</label><input id="cn-name" placeholder="My Shopify store" />
     <div id="cn-dom-w" class="hidden"><label class="lbl">Store address</label><input id="cn-dom" autocapitalize="none" placeholder="mystore.myshopify.com" /><div class="hint" id="cn-dom-h"></div></div>
     <label class="lbl" id="cn-tok-l">Access token</label><input id="cn-tok" type="password" autocapitalize="none" /><div class="hint" id="cn-hint">Test ke liye "demo" likho.</div>
+    <div class="hint hidden" id="cn-file-h">Meesho, Nykaa, Flipkart, Amazon: seller panel se order file (CSV) download karo aur yahan import karo. Channel ka naam wahi rakho (jaise Meesho).</div>
     <div class="row sheet-actions" style="margin-top:16px"><button class="btn quiet" id="cn-cancel">Cancel</button><button class="btn" id="cn-save">Connect</button></div>`);
   let ch = "DEMO";
   o.querySelectorAll("#cn-ch .chip").forEach((c) => (c.onclick = () => {
     ch = c.dataset.v; o.querySelectorAll("#cn-ch .chip").forEach((x) => x.classList.toggle("on", x === c));
-    o.querySelector("#cn-dom-w").classList.toggle("hidden", ch === "DEMO");
+    o.querySelector("#cn-dom-w").classList.toggle("hidden", ch === "DEMO" || ch === "FILE");
+    ["#cn-tok-l", "#cn-tok", "#cn-hint"].forEach((q) => o.querySelector(q).classList.toggle("hidden", ch === "FILE"));
+    o.querySelector("#cn-file-h").classList.toggle("hidden", ch !== "FILE");
     const H = {
       DEMO: ['Access token', 'Test ke liye "demo" likho.', "", ""],
       SHOPIFY: ["Access token", "Token encrypted save hota hai, wapas nahi dikhta.", "mystore.myshopify.com", ""],
@@ -508,9 +525,18 @@ function showConnect() {
   o.querySelector("#cn-cancel").onclick = () => o.remove();
   o.querySelector("#cn-save").onclick = (e) => busy(e.target, async () => {
     const name = o.querySelector("#cn-name").value.trim(), tok = o.querySelector("#cn-tok").value.trim(), dom = o.querySelector("#cn-dom").value.trim();
-    if (!name || !tok) return sheetErr(o, "Naam aur token dono daalo.");
+    if (!name || (ch !== "FILE" && !tok)) return sheetErr(o, ch === "FILE" ? "Channel ka naam daalo." : "Naam aur token dono daalo.");
     try { await api.createConnection({ channel: ch, name, shop_domain: dom, access_token: tok }); o.remove(); toast("Channel connect ho gaya"); renderChannels(); }
     catch (er) { sheetErr(o, er.message); }
+  });
+}
+async function setAutoPublish(id, on) { try { await api.setAutoPublish(id, on); toast("Setting save ho gayi"); renderChannels(); } catch (e) { toast(e.message, true); } }
+async function publishAll(id, btn) {
+  await busy(btn, async () => {
+    try {
+      const r = await api.publishAll(id);
+      toast(`${r.queued} products bhejne ke liye lage` + (r.no_sku ? `, ${r.no_sku} bina SKU ke chhoote` : ""));
+    } catch (e) { toast(e.message, true); }
   });
 }
 async function setAuto(id, level) { try { await api.setAuto(id, level); toast("Setting save ho gayi"); renderChannels(); } catch (e) { toast(e.message, true); } }
@@ -526,12 +552,60 @@ async function pullOrders(id, btn) {
       const r = await api.pullOrders(id);
       const f = r.failed || [];
       toast(`${r.new} naye order aaye` + (r.existing ? `, ${r.existing} pehle se the` : "") + (f.length ? `, ${f.length} nahi aa paye` : ""), f.length > 0 && r.new === 0);
-      if (f.length) {
-        sheet(`<h3>Ye orders nahi aa paye</h3><div class="small">Aksar wajah: SKU catalog mein nahi hai. Wahi SKU code se product banao, phir dobara Fetch karo.</div>` +
-          f.map((x) => `<div class="card"><div class="name">${esc(x.order)}</div><div class="err-text">${esc(x.error)}</div></div>`).join(""));
-      }
+      if (f.length) showFailedOrders(f);
       renderChannels();
     } catch (e) { toast(e.message, true); }
+  });
+}
+function showFailedOrders(f) {
+  sheet(`<h3>Ye orders nahi aa paye</h3><div class="small">Aksar wajah: SKU catalog mein nahi hai. Wahi SKU code se product banao, phir dobara Import / Fetch karo.</div>
+    <div style="max-height:50vh;overflow-y:auto">` + f.map((x) => `<div class="card"><div class="name">${esc(x.order)}</div><div class="err-text">${esc(x.error)}</div></div>`).join("") + `</div>`);
+}
+function importCsv(connId) {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".csv,text/csv,text/plain,application/vnd.ms-excel";
+  inp.onchange = async () => {
+    const file = inp.files && inp.files[0]; if (!file) return;
+    if (/\.xlsx?$/i.test(file.name)) return toast("Excel file nahi chalti. Excel mein Save as > CSV karke daalo.", true);
+    let rows; try { rows = CsvImport.parse(await file.text()); } catch { return toast("File padh nahi paye.", true); }
+    if (rows.length < 2) return toast("File mein koi order row nahi mili.", true);
+    showCsvMapping(connId, rows);
+  };
+  inp.click();
+}
+function showCsvMapping(connId, rows) {
+  const headers = rows[0].map((h, i) => String(h || "").trim() || `Column ${i + 1}`);
+  const key = "omnisell_csvmap:" + headers.join("|");
+  let map = CsvImport.guess(headers);
+  try { const sv = JSON.parse(localStorage.getItem(key) || "null"); if (sv) map = sv; } catch {}
+  const opt = (sel) => `<option value="-1">${esc(window.t ? t("— skip —") : "— skip —")}</option>` + headers.map((h, i) => `<option value="${i}" ${sel === i ? "selected" : ""}>${esc(h)}</option>`).join("");
+  const o = sheet(`<h3>Columns match karo</h3><div class="small">Har cheez file ke kaunse column mein hai, ye chuno. * zaroori hai.</div>
+    <div style="max-height:46vh;overflow-y:auto;margin-top:6px">${CsvImport.FIELDS.map((f) => `<label class="lbl">${f.label}${f.req ? " *" : ""}</label><select class="cm" data-no-i18n data-k="${f.k}">${opt(map[f.k])}</select>`).join("")}</div>
+    <div class="small" id="cm-sum" style="margin-top:10px"></div>
+    <div class="row sheet-actions" style="margin-top:12px"><button class="btn quiet" id="cm-no">Cancel</button><button class="btn" id="cm-go">Import</button></div>`);
+  let built = null;
+  const refresh = () => {
+    o.querySelectorAll(".cm").forEach((s) => (map[s.dataset.k] = parseInt(s.value, 10)));
+    built = CsvImport.build(rows, map);
+    const miss = CsvImport.FIELDS.filter((f) => f.req && map[f.k] < 0);
+    o.querySelector("#cm-sum").textContent = miss.length ? "Zaroori column chuno: " + miss.map((f) => f.label).join(", ")
+      : `${built.orders.length} orders · ${built.lines} lines import honge` + (built.skipped ? ` · ${built.skipped} rows chhoot gayi (khaali ya galat)` : "");
+    o.querySelector("#cm-go").disabled = !!miss.length || !built.orders.length;
+  };
+  o.querySelectorAll(".cm").forEach((s) => (s.onchange = refresh)); refresh();
+  o.querySelector("#cm-no").onclick = () => o.remove();
+  o.querySelector("#cm-go").onclick = (e) => busy(e.target, async () => {
+    try { localStorage.setItem(key, JSON.stringify(map)); } catch {}
+    const tot = { new: 0, existing: 0, failed: [] };
+    try {
+      for (let i = 0; i < built.orders.length; i += 100) {
+        const r = await api.importOrders(connId, built.orders.slice(i, i + 100));
+        tot.new += r.new; tot.existing += r.existing; tot.failed.push(...(r.failed || []));
+      }
+    } catch (er) { return sheetErr(o, er.message + (tot.new ? ` (${tot.new} orders aa chuke the)` : "")); }
+    o.remove();
+    toast(`${tot.new} naye order aaye` + (tot.existing ? `, ${tot.existing} pehle se the` : "") + (tot.failed.length ? `, ${tot.failed.length} nahi aa paye` : ""), tot.failed.length > 0 && tot.new === 0);
+    if (tot.failed.length) showFailedOrders(tot.failed);
   });
 }
 function parseCsv(t) {

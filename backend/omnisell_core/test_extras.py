@@ -85,3 +85,141 @@ class PullTests(TestCase):
         r = self.api.get("/api/v1/export/stock.csv")
         self.assertIn("CAP-R", r.content.decode())
         self.assertEqual(self.api.get("/api/v1/export/orders.csv?profile=zzz").status_code, 400)
+
+
+class FileChannelTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="T")
+        self.api = client_for(make_user(self.tenant, "own", "OWNER"))
+        p = Product.objects.create(tenant=self.tenant, title="Cap")
+        v = Variant.objects.create(tenant=self.tenant, product=p, name="Default")
+        self.sku = SKU.objects.create(tenant=self.tenant, variant=v, sku_code="CAP-R", price="199")
+        apply_entry(tenant_id=self.tenant.id, sku=self.sku, entry_type="ADJUSTMENT", delta=10,
+                    reason="t", idempotency_key="k2", user=None)
+        r = self.api.post("/api/v1/channels/connections", {"channel": "FILE", "name": "Meesho"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.conn_id = r.json()["id"]
+        self.url = f"/api/v1/channels/connections/{self.conn_id}/import-orders"
+
+    def body(self):
+        return {"orders": [
+            {"external_order_id": "M1", "customer_name": "Asha", "shipping_address": {"city": "Pune"},
+             "items": [{"sku_code": "CAP-R", "quantity": 2, "unit_price": "180"}]},
+            {"external_order_id": "M2", "items": [{"sku_code": "NOPE", "quantity": 1}]}]}
+
+    def test_create_needs_no_token_and_duplicate_name_rejected(self):
+        r = self.api.post("/api/v1/channels/connections", {"channel": "FILE", "name": "Meesho"}, format="json")
+        self.assertEqual(r.status_code, 400)
+        r = self.api.post("/api/v1/channels/connections", {"channel": "SHOPIFY", "name": "S",
+                          "shop_domain": "x.myshopify.com"}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_import_creates_orders_reports_failures_and_is_idempotent(self):
+        r1 = self.api.post(self.url, self.body(), format="json").json()
+        r2 = self.api.post(self.url, self.body(), format="json").json()
+        self.assertEqual((r1["new"], len(r1["failed"])), (1, 1))
+        self.assertEqual((r2["new"], r2["existing"]), (0, 1))
+        o = Order.objects.get(tenant=self.tenant)
+        self.assertEqual(o.external_order_id, "M1")
+        self.assertEqual(o.items.first().unit_price, 180)
+
+    def test_bad_payload_and_wrong_channel(self):
+        self.assertEqual(self.api.post(self.url, {"orders": []}, format="json").status_code, 400)
+        bad = {"orders": [{"external_order_id": "X", "items": [{"sku_code": "A", "quantity": 0}]}]}
+        self.assertEqual(self.api.post(self.url, bad, format="json").status_code, 400)
+        demo = self.api.post("/api/v1/channels/connections", {"channel": "DEMO", "name": "D",
+                             "access_token": "demo"}, format="json").json()["id"]
+        r = self.api.post(f"/api/v1/channels/connections/{demo}/import-orders", self.body(), format="json")
+        self.assertEqual(r.status_code, 400)
+        r = self.api.post(f"/api/v1/channels/connections/{self.conn_id}/pull-orders")
+        self.assertEqual(r.status_code, 400)
+
+
+class AutoPublishTests(TestCase):
+    def setUp(self):
+        from marketplaces.models import SyncJob  # noqa: F401
+        self.tenant = Tenant.objects.create(name="T")
+        self.api = client_for(make_user(self.tenant, "own", "OWNER"))
+        self.demo = self.api.post("/api/v1/channels/connections", {"channel": "DEMO", "name": "D1",
+                                  "access_token": "demo"}, format="json").json()["id"]
+
+    def make(self, title, code):
+        p = self.api.post("/api/v1/products", {"title": title}, format="json").json()
+        v = self.api.post("/api/v1/variants", {"product": p["id"], "name": "D"}, format="json").json()
+        k = self.api.post("/api/v1/skus", {"variant": v["id"], "sku_code": code, "price": "100"},
+                          format="json").json()
+        return p, v, k
+
+    def jobs(self):
+        from marketplaces.models import SyncJob
+        return SyncJob.objects.filter(tenant=self.tenant, job_type="PUBLISH_PRODUCT").count()
+
+    def test_off_by_default(self):
+        self.make("Shirt", "S1")
+        self.assertEqual(self.jobs(), 0)
+
+    def test_on_publishes_when_sku_added_and_when_edited(self):
+        url = f"/api/v1/channels/connections/{self.demo}/auto-publish"
+        self.assertEqual(self.api.post(url, {"enabled": "yes"}, format="json").status_code, 400)
+        self.assertTrue(self.api.post(url, {"enabled": True}, format="json").json()["auto_publish"])
+        p, v, k = self.make("Shirt", "S1")
+        self.assertEqual(self.jobs(), 1)                      # product banne par nahi, SKU banne par
+        v2 = self.api.post("/api/v1/skus", {"variant": v["id"], "sku_code": "S2", "price": "120"},
+                           format="json").json()
+        self.assertEqual(self.jobs(), 2)                      # naya SKU = nayi job
+        self.api.patch(f"/api/v1/skus/{k['id']}", {"price": "110"}, format="json")
+        self.assertEqual(self.jobs(), 3)                      # price badla
+        self.api.patch(f"/api/v1/products/{p['id']}", {"title": "Shirt 2"}, format="json")
+        self.assertEqual(self.jobs(), 4)                      # naam badla
+
+    def test_product_without_sku_not_sent(self):
+        self.api.post(f"/api/v1/channels/connections/{self.demo}/auto-publish", {"enabled": True}, format="json")
+        p = self.api.post("/api/v1/products", {"title": "Empty"}, format="json").json()
+        self.api.patch(f"/api/v1/products/{p['id']}", {"title": "Empty 2"}, format="json")
+        self.assertEqual(self.jobs(), 0)
+
+    def test_publish_all(self):
+        self.make("A", "A1"); self.make("B", "B1")
+        self.api.post("/api/v1/products", {"title": "NoSku"}, format="json")
+        url = f"/api/v1/channels/connections/{self.demo}/publish-all"
+        r = self.api.post(url).json()
+        self.assertEqual((r["queued"], r["no_sku"]), (2, 1))
+        r = self.api.post(url).json()
+        self.assertEqual(r["queued"], 0)                      # dobara dabane par duplicate job nahi
+        file_c = self.api.post("/api/v1/channels/connections", {"channel": "FILE", "name": "Meesho"},
+                               format="json").json()["id"]
+        self.assertEqual(self.api.post(f"/api/v1/channels/connections/{file_c}/publish-all").status_code, 400)
+        self.assertEqual(self.api.post(f"/api/v1/channels/connections/{file_c}/auto-publish",
+                                       {"enabled": True}, format="json").status_code, 400)
+
+
+class ProductDeleteTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="T")
+        self.api = client_for(make_user(self.tenant, "own", "OWNER"))
+        self.other = client_for(make_user(Tenant.objects.create(name="T2"), "o2", "OWNER"))
+        self.p = self.api.post("/api/v1/products", {"title": "Shirt"}, format="json").json()
+        v = self.api.post("/api/v1/variants", {"product": self.p["id"], "name": "D"}, format="json").json()
+        self.k = self.api.post("/api/v1/skus", {"variant": v["id"], "sku_code": "S1", "price": "100"},
+                               format="json").json()
+        self.api.post("/api/v1/inventory/adjust", {"sku": self.k["id"], "entry_type": "ADJUSTMENT",
+                      "quantity_delta": 5, "idempotency_key": "d1"}, format="json")
+
+    def test_delete_with_stock_history_works(self):
+        r = self.api.delete(f"/api/v1/products/{self.p['id']}")
+        self.assertEqual(r.status_code, 204)
+        self.assertFalse(Product.objects.filter(id=self.p["id"]).exists())
+        self.assertFalse(SKU.objects.filter(tenant=self.tenant).exists())
+
+    def test_delete_blocked_when_orders_exist(self):
+        r = self.api.post("/api/v1/orders", {"customer_name": "A", "items": [{"sku": self.k["id"], "quantity": 1}],
+                          "idempotency_key": "o1"}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        r = self.api.delete(f"/api/v1/products/{self.p['id']}")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("ARCHIVED", r.json()["error"])
+        self.assertTrue(Product.objects.filter(id=self.p["id"]).exists())
+
+    def test_other_tenant_cannot_delete(self):
+        self.assertEqual(self.other.delete(f"/api/v1/products/{self.p['id']}").status_code, 404)
+        self.assertTrue(Product.objects.filter(id=self.p["id"]).exists())
