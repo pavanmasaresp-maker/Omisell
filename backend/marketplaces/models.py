@@ -33,6 +33,9 @@ class ChannelConnection(models.Model):
                                     choices=[("MANUAL", "MANUAL"), ("CONFIRM", "CONFIRM"), ("PACK", "PACK")])
     # Naya SKU bante hi product is channel par apne aap publish ho (Shopify / WooCommerce / Demo)
     auto_publish = models.BooleanField(default=False)
+    # Seller ke apne charges (dashboard ke hisaab ke liye): commission % aur har order par fixed charge (shipping/fixed fee)
+    commission_pct = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    charge_per_order = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

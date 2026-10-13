@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.http import HttpResponse
 from django.urls import include, path
 from accounts.views import GoogleLoginView, LoginView, MeView
-from inventory.dashboard import DashboardView
+from inventory.dashboard import DashboardView, OverviewView
 from . import public
 from .exports import OrdersCsvView, StockCsvView
 
@@ -17,6 +17,7 @@ urlpatterns = [
     path("api/v1/auth/google", GoogleLoginView.as_view()),
     path("api/v1/auth/me", MeView.as_view()),
     path("api/v1/dashboard", DashboardView.as_view()),
+    path("api/v1/dashboard/overview", OverviewView.as_view()),
     path("api/v1/inventory/", include("inventory.urls")),
     path("api/v1/channels/", include("marketplaces.urls")),
     path("api/v1/orders", include("orders.urls")),

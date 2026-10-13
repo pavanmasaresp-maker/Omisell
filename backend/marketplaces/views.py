@@ -78,6 +78,23 @@ class ConnectionViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin,
         conn.save(update_fields=["auto_publish"])
         return Response(ConnectionSerializer(conn).data)
 
+    @action(detail=True, methods=["post"], url_path="fees")
+    def set_fees(self, request, pk=None):
+        """Is channel ke apne charges: commission % + har order par fixed charge."""
+        from decimal import Decimal, InvalidOperation
+        conn = self.get_object()
+        try:
+            pct = Decimal(str(request.data.get("commission_pct", 0) or 0))
+            per = Decimal(str(request.data.get("charge_per_order", 0) or 0))
+        except InvalidOperation:
+            return Response({"error": "Sirf number daalo."}, status=400)
+        if not (0 <= pct <= 100) or not (0 <= per <= 100000):
+            return Response({"error": "Commission 0 se 100 ke beech, charge 0 se zyada hona chahiye."}, status=400)
+        conn.commission_pct = pct.quantize(Decimal("0.01"))
+        conn.charge_per_order = per.quantize(Decimal("0.01"))
+        conn.save(update_fields=["commission_pct", "charge_per_order"])
+        return Response(ConnectionSerializer(conn).data)
+
     @action(detail=True, methods=["post"], url_path="publish-all")
     def publish_all_action(self, request, pk=None):
         """Saare products is channel par bhejo (jobs queue mein jaate hain)."""

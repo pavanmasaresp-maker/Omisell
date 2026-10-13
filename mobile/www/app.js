@@ -36,6 +36,8 @@ const api = {
   googleLogin: (id_token) => post("/auth/google", { id_token }),
   deleteAccount: () => del("/auth/me", { confirm: "DELETE" }),
   dashboard: () => req("/dashboard"),
+  overview: (days) => req(`/dashboard/overview?days=${days}`),
+  setFees: (id, commission_pct, charge_per_order) => post(`/channels/connections/${id}/fees`, { commission_pct, charge_per_order }),
   products: async (q = "") => list(await req("/products" + (q ? `?search=${encodeURIComponent(q)}` : ""))),
   updateProduct: (id, b) => patch(`/products/${id}`, b),
   deleteProduct: (id) => del(`/products/${id}`),
@@ -234,35 +236,74 @@ function go(v) {
 function goBack() { go("more"); }
 const setSub = (t) => ($("topbar-sub").textContent = t);
 
-// ================= Home =================
+// ================= Home (seller dashboard) =================
+let dashDays = 30, dashTab = "channels";
+const CH_ICON = { SHOPIFY: "🛍️", WOOCOMMERCE: "🌐", DEMO: "🧪", FILE: "📄", DIRECT: "🏪" };
+const PIPE = [["IMPORTED", "Naya", "var(--info)"], ["CONFIRMED", "Confirmed", "var(--info)"], ["PACKED", "Packed", "var(--warn)"],
+  ["SHIPPED", "Raste mein", "var(--accent)"], ["DELIVERED", "Delivered", "var(--ok)"], ["CANCELLED", "Cancel", "var(--danger)"], ["RETURNED", "Return", "var(--danger)"]];
+function setDash(k, v) { if (k === "days") dashDays = v; else dashTab = v; renderHome(); }
 async function renderHome() {
   try {
-    const d = await api.dashboard();
-    const onHand = d.total_on_hand ?? 0, res = d.total_reserved ?? 0;
-    const avail = Math.max(onHand - res, 0), share = onHand > 0 ? Math.round((res / onHand) * 100) : 0;
-    const low = d.low_stock || [], recent = d.recent || [];
+    const [d, o] = await Promise.all([api.dashboard(), api.overview(dashDays)]);
+    const t = o.totals, ch = o.channels || [], pl = o.pipeline || {};
+    const onHand = d.total_on_hand ?? 0, res = d.total_reserved ?? 0, avail = Math.max(onHand - res, 0);
+    const low = d.low_stock || [];
+    const pmax = Math.max(1, ...PIPE.map((p) => pl[p[0]] || 0));
+    const cmax = Math.max(1, ...ch.map((c) => Number(c.revenue)));
+    const chips = [[7, "7 din"], [30, "30 din"], [0, "Sab"]].map(([v, l]) => `<button class="chip ${dashDays === v ? "on" : ""}" onclick="setDash('days',${v})">${l}</button>`).join("");
+    const tabs = [["channels", "Channels"], ["products", "Products"], ["stock", "Stock"]].map(([v, l]) => `<button class="chip ${dashTab === v ? "on" : ""}" onclick="setDash('tab','${v}')">${l}</button>`).join("");
+    let body = "";
+    if (dashTab === "channels") {
+      body = ch.length ? ch.map((c) => `<div class="card dcard">
+        <div class="row between"><div class="grow"><div class="name">${CH_ICON[c.channel] || "🛒"} ${esc(c.name)}</div>
+          <div class="small">${num(c.orders)} order · ${num(c.units)} piece bika</div></div>
+          <div style="text-align:right"><div class="name num">${money(c.revenue)}</div><div class="small">Sale</div></div></div>
+        <div class="meter"><i style="width:${Math.round((Number(c.revenue) / cmax) * 100)}%"></i></div>
+        <div class="kv"><div><span class="small">Charges</span><b class="num" style="color:var(--danger)">−${money(c.fees)}</b></div>
+          <div><span class="small">Aapko bacha</span><b class="num" style="color:var(--ok)">${money(c.net)}</b></div></div>
+        <div class="dchips">
+          <span class="dc ok">Delivered ${num(c.delivered)}</span><span class="dc warn">Raste mein ${num(c.in_transit)}</span>
+          <span class="dc info">Bhejna baaki ${num(c.to_ship)}</span>${c.returned ? `<span class="dc bad">Return ${num(c.returned)}</span>` : ""}${c.cancelled ? `<span class="dc bad">Cancel ${num(c.cancelled)}</span>` : ""}</div>
+        ${c.channel !== "DIRECT" && c.channel !== "FILE" ? `<div class="small" style="margin-top:8px">Listed: <b>${num(c.listed)}</b>${c.pending ? ` · Pending ${num(c.pending)}` : ""}${c.failed ? ` · <span style="color:var(--danger)">Fail ${num(c.failed)}</span>` : ""}</div>` : ""}
+        ${c.channel !== "DIRECT" ? `<div class="small muted" style="margin-top:6px">Charge setting: ${esc(c.commission_pct)}% + ${money(c.charge_per_order)} har order <a href="#" onclick="event.preventDefault();feeSheet('${c.id}',${esc(JSON.stringify(c.name))},'${esc(c.commission_pct)}','${esc(c.charge_per_order)}')" class="lnk">badlo</a></div>` : ""}
+      </div>`).join("") : empty("Koi channel nahi", "Channels mein jaake apna store ya CSV channel connect karo.");
+    } else if (dashTab === "products") {
+      body = (o.top_products || []).length ? `<div class="section" style="margin-top:0">Sabse zyada bika</div><div class="card">${o.top_products.map((p, i) => `<div class="ledger-row"><div class="grow">${i + 1}. ${esc(p.product)}</div><div class="num"><b>${num(p.units)}</b> pcs · ${money(p.revenue)}</div></div>`).join("")}</div>` : "";
+      body += `<div class="section">Kaunsa product kahan hai</div>` + ((o.products || []).length ? o.products.map((p) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(p.title)}</div><div class="small">${num(p.sold)} bika</div></div>${pill(p.status || "DRAFT")}</div>
+        <div class="dchips">${p.channels.length ? p.channels.map((c) => `<span class="dc ${c.status === "ACTIVE" ? "ok" : c.status === "PENDING" ? "warn" : "bad"}">${esc(c.channel)} · ${c.status === "ACTIVE" ? "Live" : c.status === "PENDING" ? "Pending" : "Fail"}</span>`).join("") : `<span class="dc">Kisi channel par nahi</span>`}</div></div>`).join("") : empty("Abhi koi product nahi", "Products tab se add karo."));
+    } else {
+      body = `<div class="card"><div class="row between"><div><div class="small">Bechne layak stock</div><div class="big2 num">${num(avail)}</div></div><div style="text-align:right" class="small">On hand ${num(onHand)}<br>Orders ke liye ruka ${num(res)}</div></div></div>
+        <div class="section">Kam bacha (≤ ${esc(d.low_stock_threshold ?? "")})</div>` +
+        (low.length ? low.map((i) => `<div class="card accent ${i.available <= 0 ? "red" : ""}"><div class="row between"><div class="grow"><div class="name">${esc(i.sku_code)}</div><div class="small">${esc(i.product)}</div></div><div class="num" style="font-size:22px;font-weight:800;color:${i.available <= 0 ? "var(--danger)" : "var(--warn)"}">${num(i.available)}</div></div></div>`).join("") : empty("Stock theek hai", "Koi SKU kam nahi pada."));
+    }
     content().innerHTML = `
+      <div class="row" style="gap:6px;margin-bottom:10px">${chips}</div>
       <div class="hero">
-        <div class="k">Sellable stock</div>
-        <div class="big num">${num(avail)}</div>
-        <div class="bar"><i style="width:${onHand > 0 ? 100 - share : 0}%"></i></div>
-        <div class="meta"><span>On hand ${num(onHand)}</span><span>Reserved for orders ${num(res)}</span></div>
+        <div class="k">Total sale</div><div class="big num">${money(t.revenue)}</div>
+        <div class="meta"><span>Charges −${money(t.fees)}</span><span>Aapko bacha ${money(t.net)}</span></div>
       </div>
-      <div class="tiles">
-        <button class="tile" onclick="go('products')"><div class="l">Products</div><div class="v num">${num(d.products)}</div></button>
-        <button class="tile" onclick="go('stock')"><div class="l">SKUs</div><div class="v num">${num(d.skus)}</div></button>
+      <div class="tiles t3">
+        <button class="tile" onclick="go('products')"><div class="l">Products</div><div class="v num">${num(t.products)}</div><div class="small">${num(t.listed_products)} live</div></button>
+        <button class="tile" onclick="go('orders')"><div class="l">Orders</div><div class="v num">${num(t.orders)}</div></button>
+        <button class="tile"><div class="l">Pieces</div><div class="v num">${num(t.units)}</div></button>
       </div>
-      <div class="section">Running low (≤ ${esc(d.low_stock_threshold ?? "")})</div>
-      ${low.length ? low.map((i) => `<div class="card accent ${i.available <= 0 ? "red" : ""}"><div class="row between">
-          <div class="grow"><div class="name">${esc(i.sku_code)}</div><div class="small">${esc(i.product)}</div></div>
-          <div class="v num" style="font-size:22px;font-weight:800;color:${i.available <= 0 ? "var(--danger)" : "var(--warn)"}">${num(i.available)}</div>
-        </div></div>`).join("") : empty("Stock theek hai", "Koi SKU kam nahi pada.")}
-      <div class="section">Recent stock changes</div>
-      ${recent.length ? `<div class="card" style="padding-top:4px;padding-bottom:4px">${recent.map((e) => `
-        <div class="ledger-row"><div><div>${esc(e.sku_code)}</div><div class="small">${esc(String(e.entry_type).toLowerCase())} · ${esc(new Date(e.created_at).toLocaleString())}</div></div>
-        <div class="delta ${e.quantity_delta > 0 ? "up" : "down"} num">${e.quantity_delta > 0 ? "+" : ""}${num(e.quantity_delta)}</div></div>`).join("")}</div>`
-        : empty("Abhi koi hisaab nahi", "Stock add karoge to yahan dikhega.")}`;
+      <div class="section">Delivery ka haal</div>
+      <div class="card">${PIPE.map(([k, l, col]) => `<div class="prow"><span class="pl">${l}</span><span class="pbar"><i style="width:${Math.round(((pl[k] || 0) / pmax) * 100)}%;background:${col}"></i></span><b class="num">${num(pl[k] || 0)}</b></div>`).join("")}</div>
+      <div class="row" style="gap:6px;margin:14px 0 10px">${tabs}</div>
+      ${body}`;
   } catch (e) { content().innerHTML = errBanner(e.message) + `<button class="btn quiet" onclick="go('home')">Try again</button>`; }
+}
+function feeSheet(id, name, pct, per) {
+  const o = sheet(`<h3>Charges: ${esc(name)}</h3>
+    <div class="hint">Marketplace jo commission/charge leta hai wo yahan daalo (seller panel ya invoice se dekh lo). Dashboard isi se "aapko bacha" nikalta hai. Ye sirf hisaab ke liye hai, marketplace par kuch nahi badalta.</div>
+    <label class="lbl">Commission (% of sale)</label><input id="f-pct" inputmode="decimal" value="${esc(pct)}" />
+    <label class="lbl">Har order par fixed charge (₹)</label><input id="f-per" inputmode="decimal" value="${esc(per)}" />
+    <div class="row sheet-actions" style="margin-top:16px"><button class="btn quiet" id="f-cancel">Cancel</button><button class="btn" id="f-save">Save</button></div>`);
+  o.querySelector("#f-cancel").onclick = () => o.remove();
+  o.querySelector("#f-save").onclick = (e) => busy(e.target, async () => {
+    try { await api.setFees(id, o.querySelector("#f-pct").value.trim() || "0", o.querySelector("#f-per").value.trim() || "0"); o.remove(); toast("Charges save ho gaye"); renderHome(); }
+    catch (er) { sheetErr(o, er.message); }
+  });
 }
 
 // ================= Products =================

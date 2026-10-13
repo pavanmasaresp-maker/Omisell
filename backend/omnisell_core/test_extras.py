@@ -223,3 +223,42 @@ class ProductDeleteTests(TestCase):
     def test_other_tenant_cannot_delete(self):
         self.assertEqual(self.other.delete(f"/api/v1/products/{self.p['id']}").status_code, 404)
         self.assertTrue(Product.objects.filter(id=self.p["id"]).exists())
+
+
+class OverviewTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="T")
+        self.api = client_for(make_user(self.tenant, "own", "OWNER"))
+        p = Product.objects.create(tenant=self.tenant, title="Charger")
+        v = Variant.objects.create(tenant=self.tenant, product=p, name="Default")
+        self.sku = SKU.objects.create(tenant=self.tenant, variant=v, sku_code="CH-1", price="500")
+        apply_entry(tenant_id=self.tenant.id, sku=self.sku, entry_type="ADJUSTMENT", delta=50,
+                    reason="t", idempotency_key="ov1", user=None)
+        self.conn = self.api.post("/api/v1/channels/connections", {"channel": "FILE", "name": "Meesho"},
+                                  format="json").json()["id"]
+
+    def test_fees_validation_and_overview_numbers(self):
+        url = f"/api/v1/channels/connections/{self.conn}/fees"
+        self.assertEqual(self.api.post(url, {"commission_pct": "150"}, format="json").status_code, 400)
+        self.assertEqual(self.api.post(url, {"commission_pct": "abc"}, format="json").status_code, 400)
+        r = self.api.post(url, {"commission_pct": "10", "charge_per_order": "20"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = {"orders": [
+            {"external_order_id": "A", "items": [{"sku_code": "CH-1", "quantity": 2, "unit_price": "500"}]},
+            {"external_order_id": "B", "items": [{"sku_code": "CH-1", "quantity": 1, "unit_price": "500"}]}]}
+        self.api.post(f"/api/v1/channels/connections/{self.conn}/import-orders", body, format="json")
+        Order.objects.filter(external_order_id="B").update(status="CANCELLED")
+        d = self.api.get("/api/v1/dashboard/overview?days=0").json()
+        ch = [c for c in d["channels"] if c["name"] == "Meesho"][0]
+        self.assertEqual((ch["orders"], ch["units"]), (1, 2))
+        self.assertEqual(ch["revenue"], "1000.00")
+        self.assertEqual(ch["fees"], "120.00")   # 10% of 1000 + 20 x 1 order
+        self.assertEqual(ch["net"], "880.00")
+        self.assertEqual(d["pipeline"]["CANCELLED"], 1)
+        self.assertEqual(d["top_products"][0]["units"], 2)
+        self.assertEqual(d["totals"]["products"], 1)
+
+    def test_other_tenant_isolated_and_empty_ok(self):
+        other = client_for(make_user(Tenant.objects.create(name="O"), "oth", "OWNER"))
+        d = other.get("/api/v1/dashboard/overview").json()
+        self.assertEqual((d["totals"]["products"], d["channels"]), (0, []))

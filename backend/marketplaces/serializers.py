@@ -14,7 +14,8 @@ class ConnectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChannelConnection
         fields = ["id", "channel", "name", "shop_domain", "status",
-                  "last_checked_at", "last_error", "auto_process", "auto_publish", "created_at"]
+                  "last_checked_at", "last_error", "auto_process", "auto_publish", "commission_pct",
+                  "charge_per_order", "created_at"]
 
 
 class ConnectionCreateSerializer(serializers.Serializer):
