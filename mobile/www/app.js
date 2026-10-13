@@ -2,7 +2,7 @@
 const BASE = (typeof API_URL !== "undefined" ? API_URL : "") + "/api/v1";
 const getToken = () => { try { return localStorage.getItem("omnisell_token"); } catch { return null; } };
 const saveToken = (t) => { try { localStorage.setItem("omnisell_token", t); } catch {} };
-const clearToken = () => { try { localStorage.removeItem("omnisell_token"); } catch {} };
+const clearToken = () => { try { localStorage.removeItem("omnisell_token"); Object.keys(localStorage).filter((k) => k.startsWith("omnisell_home_")).forEach((k) => localStorage.removeItem(k)); } catch {} };
 
 async function req(path, opts = {}) {
   const token = getToken();
@@ -208,6 +208,7 @@ function showLogin() {
 }
 function showApp() {
   $("login-screen").classList.add("hidden"); $("app-screen").classList.remove("hidden");
+  try { fetch(API_URL + "/healthz", { mode: "no-cors" }).catch(() => {}); } catch {}  // free server so raha ho to jaga do
   go("home");
   if (window.Tour) Tour.maybe();
 }
@@ -243,6 +244,8 @@ const PIPE = [["IMPORTED", "Naya", "var(--info)"], ["CONFIRMED", "Confirmed", "v
   ["SHIPPED", "Raste mein", "var(--accent)"], ["DELIVERED", "Delivered", "var(--ok)"], ["CANCELLED", "Cancel", "var(--danger)"], ["RETURNED", "Return", "var(--danger)"]];
 function setDash(k, v) { if (k === "days") dashDays = v; else dashTab = v; renderHome(); }
 async function renderHome() {
+  const ck = `omnisell_home_${dashDays}_${dashTab}`;
+  try { const c = localStorage.getItem(ck); if (c) content().innerHTML = c; } catch {}  // pichla data turant, naya peeche se
   try {
     const [d, o] = await Promise.all([api.dashboard(), api.overview(dashDays)]);
     const t = o.totals, ch = o.channels || [], pl = o.pipeline || {};
@@ -291,6 +294,7 @@ async function renderHome() {
       <div class="card">${PIPE.map(([k, l, col]) => `<div class="prow"><span class="pl">${l}</span><span class="pbar"><i style="width:${Math.round(((pl[k] || 0) / pmax) * 100)}%;background:${col}"></i></span><b class="num">${num(pl[k] || 0)}</b></div>`).join("")}</div>
       <div class="row" style="gap:6px;margin:14px 0 10px">${tabs}</div>
       ${body}`;
+    try { localStorage.setItem(ck, content().innerHTML); } catch {}
   } catch (e) { content().innerHTML = errBanner(e.message) + `<button class="btn quiet" onclick="go('home')">Try again</button>`; }
 }
 function feeSheet(id, name, pct, per) {
