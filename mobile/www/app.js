@@ -561,7 +561,7 @@ function showConnect() {
     o.querySelector("#cn-file-h").classList.toggle("hidden", ch !== "FILE");
     const H = {
       DEMO: ['Access token', 'Test ke liye "demo" likho.', "", ""],
-      SHOPIFY: ["Access token", "Token encrypted save hota hai, wapas nahi dikhta.", "mystore.myshopify.com", ""],
+      SHOPIFY: ["Token ya Client ID:Secret", "Purana token (shpat_...) ya naye Dev Dashboard app ka client_id:client_secret. Encrypted save hota hai, wapas nahi dikhta.", "mystore.myshopify.com", ""],
       FLIPKART: ["Application ID:Secret", "Format: application_id:application_secret (Flipkart seller panel > Developer Access). BETA: asli account par test baaki. Naya listing Flipkart panel se banao (SKU wahi rakho), app stock aur orders sambhalega.", "", ""],
       WOOCOMMERCE: ["API keys (key:secret)", "Format: consumer_key:consumer_secret. WooCommerce > Settings > Advanced > REST API se Read/Write key banao.", "mystore.com", "Sirf https wali site, bina https:// ke."],
     }[ch];

@@ -2,7 +2,9 @@ import html
 import json
 import os
 import re
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .base import AdapterError, MarketplaceAdapter
@@ -60,6 +62,46 @@ class ShopifyAdapter(MarketplaceAdapter):
         self.access_token = access_token
         self.api_version = api_version
         self._location_id = None
+        # Naye Dev Dashboard app: 'client_id:client_secret' -> 24 ghante ka token apne aap
+        self._client = None
+        if ":" in (access_token or "") and not (access_token or "").startswith("shp"):
+            cid, _, sec = access_token.partition(":")
+            self._client = (cid.strip(), sec.strip())
+
+    _TOKENS = {}  # (domain, client_id) -> (token, expiry) : jobs ke beech reuse
+
+    def _token(self):
+        if not self._client:
+            return self.access_token
+        if not DOMAIN_RE.match(self.shop_domain):
+            raise AdapterError("Store address 'mystore.myshopify.com' jaisa hona chahiye.",
+                               needs_action=True)
+        key = (self.shop_domain, self._client[0])
+        tok = self._TOKENS.get(key)
+        if tok and time.time() < tok[1] - 300:
+            return tok[0]
+        data = urllib.parse.urlencode({"grant_type": "client_credentials",
+                                       "client_id": self._client[0],
+                                       "client_secret": self._client[1]}).encode()
+        req = urllib.request.Request(f"https://{self.shop_domain}/admin/oauth/access_token",
+                                     data=data, method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                res = json.load(resp)
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 401, 403, 404):
+                raise AdapterError("Shopify ne Client ID/Secret nahi mane. Check karo: app is store par "
+                                   "install hai aur dono sahi hain.", needs_action=True)
+            raise AdapterError(f"Shopify token temporary error (HTTP {e.code}).", retryable=True)
+        except (urllib.error.URLError, TimeoutError):
+            raise AdapterError("Shopify tak pahunch nahi paaye.", retryable=True)
+        except ValueError:
+            raise AdapterError("Shopify ka jawab samajh nahi aaya.", retryable=True)
+        if not res.get("access_token"):
+            raise AdapterError("Shopify se token nahi mila.", needs_action=True)
+        self._TOKENS[key] = (res["access_token"], time.time() + int(res.get("expires_in") or 3600))
+        return res["access_token"]
 
     # ---------- low level ----------
     def _graphql(self, query, variables=None):
@@ -70,7 +112,7 @@ class ShopifyAdapter(MarketplaceAdapter):
         body = json.dumps({"query": query, "variables": variables or {}}).encode()
         req = urllib.request.Request(url, data=body, method="POST", headers={
             "Content-Type": "application/json",
-            "X-Shopify-Access-Token": self.access_token,
+            "X-Shopify-Access-Token": self._token(),
         })
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
