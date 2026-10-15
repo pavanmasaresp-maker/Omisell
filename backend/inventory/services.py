@@ -20,7 +20,7 @@ def validate_sign(entry_type, delta):
 
 
 @transaction.atomic
-def apply_entry(*, tenant_id, sku, entry_type, delta, reason="", idempotency_key="", user=None):
+def apply_entry(*, tenant_id, sku, entry_type, delta, reason="", idempotency_key="", user=None, sync=True):
     """Writes ledger entry + updates balance atomically. Returns (entry, balance, created)."""
     validate_sign(entry_type, delta)
     InventoryBalance.objects.get_or_create(tenant_id=tenant_id, sku=sku)
@@ -48,7 +48,8 @@ def apply_entry(*, tenant_id, sku, entry_type, delta, reason="", idempotency_key
         reason=reason, idempotency_key=idempotency_key, created_by=user)
     balance.on_hand, balance.reserved = new_on_hand, new_reserved
     balance.save()
-    _schedule_channel_sync(tenant_id, sku.id, entry.id)
+    if sync:
+        _schedule_channel_sync(tenant_id, sku.id, entry.id)
     return entry, balance, True
 
 

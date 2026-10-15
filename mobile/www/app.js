@@ -65,6 +65,7 @@ const api = {
   publishAll: (id) => post(`/channels/connections/${id}/publish-all`),
   importOrders: (id, orders) => post(`/channels/connections/${id}/import-orders`, { orders }),
   pullOrders: (id) => post(`/channels/connections/${id}/pull-orders`),
+  importProducts: (id) => post(`/channels/connections/${id}/import-products`),
   simulateOrder: (id) => post(`/channels/connections/${id}/simulate-order`),
   jobs: async () => list(await req("/channels/jobs")),
   retryJob: (id) => post(`/channels/jobs/${id}/retry`),
@@ -541,7 +542,7 @@ async function renderChannels() {
     content().innerHTML = `<button class="btn" style="margin-top:0" onclick="showConnect()">Connect a channel</button><div style="height:12px"></div>` +
       (items.length ? items.map((i) => `<div class="card"><div class="row between"><div class="grow"><div class="name">${esc(i.name)}</div><div class="small">${esc(i.channel === "DEMO" ? "Demo" : i.channel === "FILE" ? "CSV file" : i.channel === "FLIPKART" ? "Flipkart (Beta)" : i.shop_domain)}</div></div>${pill(i.status)}</div>
         ${i.last_error ? `<div class="err-text">${esc(i.last_error)}</div>` : ""}
-        <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div>${i.channel !== "FILE" ? `<div class="row" style="margin-top:12px;gap:6px"><button class="chip ${i.auto_publish ? "on" : ""}" onclick="setAutoPublish('${i.id}',${!i.auto_publish})">Auto publish ${i.auto_publish ? "ON" : "OFF"}</button><button class="chip" onclick="publishAll('${i.id}',this)">Publish all products</button></div><div class="small muted" style="margin:6px 0 0">${i.auto_publish ? "Naya product ya badlav apne aap is channel par jayega." : "Product aap Sync se khud bhejoge."}</div>` : ""}<div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}${i.channel === "FILE" ? `<button class="btn sm grow" onclick="importCsv('${i.id}')">Import CSV</button>` : ""}${i.channel !== "DEMO" && i.channel !== "FILE" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="pullOrders('${i.id}',this)">Fetch orders</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
+        <div class="row" style="margin-top:12px;gap:6px">${["MANUAL:Manual","CONFIRM:Auto confirm","PACK:Auto pack"].map(x => { const [v, l] = x.split(":"); return `<button class="chip ${(i.auto_process || "MANUAL") === v ? "on" : ""}" onclick="setAuto('${i.id}','${v}')">${l}</button>`; }).join("")}</div><div class="small muted" style="margin:6px 0 0">Naya order aate hi: ${{MANUAL: "aap khud confirm/pack karoge", CONFIRM: "apne aap confirm hoga", PACK: "apne aap confirm + pack hoga (ship aap karoge)"}[i.auto_process || "MANUAL"]}</div>${i.channel !== "FILE" ? `<div class="row" style="margin-top:12px;gap:6px"><button class="chip ${i.auto_publish ? "on" : ""}" onclick="setAutoPublish('${i.id}',${!i.auto_publish})">Auto publish ${i.auto_publish ? "ON" : "OFF"}</button><button class="chip" onclick="publishAll('${i.id}',this)">Publish all products</button></div><div class="small muted" style="margin:6px 0 0">${i.auto_publish ? "Naya product ya badlav apne aap is channel par jayega." : "Product aap Sync se khud bhejoge."}</div>` : ""}<div class="row" style="margin-top:12px">${i.channel === "DEMO" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="simulate('${i.id}',this)">Test order</button>` : ""}${i.channel === "FILE" ? `<button class="btn sm grow" onclick="importCsv('${i.id}')">Import CSV</button>` : ""}${i.channel !== "DEMO" && i.channel !== "FILE" && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="pullOrders('${i.id}',this)">Fetch orders</button>` : ""}${(i.channel === "SHOPIFY" || i.channel === "WOOCOMMERCE") && i.status === "CONNECTED" ? `<button class="btn sm grow" onclick="importProducts('${i.id}',this)">Import products</button>` : ""}<button class="btn sm quiet grow" onclick="recheck('${i.id}',this)">Check again</button><button class="btn sm quiet grow" style="color:var(--danger)" onclick="removeConn('${i.id}')">Remove</button></div></div>`).join("")
         : empty("Koi channel connected nahi", "Pehle Demo channel connect karke poora flow try kar sakte ho."));
   } catch (e) { content().innerHTML = errBanner(e.message); }
 }
@@ -590,6 +591,14 @@ async function simulate(id, btn) {
   await busy(btn, async () => {
     try { const o = await api.simulateOrder(id); toast(`Nakli order aaya: ${o.order_number}. Orders tab mein dekho.`); }
     catch (e) { toast(e.message, true); }
+  });
+}
+async function importProducts(id, btn) {
+  await busy(btn, async () => {
+    try {
+      const r = await api.importProducts(id), f = r.failed || [];
+      toast(`${r.new} naye products aaye` + (r.existing ? `, ${r.existing} pehle se the` : "") + (r.skipped_no_sku ? `, ${r.skipped_no_sku} bina SKU ke chhoote` : "") + (f.length ? `, ${f.length} fail` : ""), f.length > 0);
+    } catch (e) { toast(e.message, true); }
   });
 }
 async function pullOrders(id, btn) {

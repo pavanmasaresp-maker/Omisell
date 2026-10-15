@@ -52,6 +52,19 @@ query($first: Int!) {
 }"""
 
 
+PRODUCTS_Q = """
+query($first: Int!, $after: String) {
+  products(first: $first, after: $after, sortKey: ID) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id title description status
+      variants(first: 100) { nodes { sku title price inventoryQuantity } }
+    }
+  }
+}"""
+MAX_IMPORT = 200
+
+
 class ShopifyAdapter(MarketplaceAdapter):
     """Shopify Admin GraphQL API. Auth header: X-Shopify-Access-Token.
     Token ko in scopes ki zaroorat hai: read_products, write_products,
@@ -273,3 +286,20 @@ class ShopifyAdapter(MarketplaceAdapter):
                 "shipping_address": {k: ship[k] for k in ("address1", "address2", "city", "province", "zip", "country") if ship.get(k)},
                 "items": items})
         return out
+
+    def fetch_products(self):
+        out, after = [], None
+        while len(out) < MAX_IMPORT:
+            data = self._graphql(PRODUCTS_Q, {"first": 50, "after": after})["products"]
+            for p in data["nodes"]:
+                out.append({
+                    "external_id": p["id"].rsplit("/", 1)[-1], "title": p.get("title") or "",
+                    "description": p.get("description") or "",
+                    "status": {"ACTIVE": "ACTIVE", "ARCHIVED": "ARCHIVED"}.get(p.get("status"), "DRAFT"),
+                    "variants": [{"sku_code": (v.get("sku") or "").strip(), "name": v.get("title") or "",
+                                  "price": v.get("price") or "0", "quantity": v.get("inventoryQuantity") or 0}
+                                 for v in p["variants"]["nodes"]]})
+            if not data["pageInfo"]["hasNextPage"]:
+                break
+            after = data["pageInfo"]["endCursor"]
+        return out[:MAX_IMPORT]

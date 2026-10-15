@@ -38,3 +38,8 @@ class MarketplaceAdapter:
         """Marketplace ke naye/recent orders, normalized dict list (order_import.py ka format).
         Jo adapter order pull nahi karta wo khali list deta hai."""
         return []
+
+    def fetch_products(self) -> list:
+        """Store ke maujooda products: [{external_id, title, description, status, variants:[{sku_code, price, quantity, name}]}].
+        Jo adapter ye nahi karta wo khali list deta hai."""
+        return []

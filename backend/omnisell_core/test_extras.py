@@ -277,3 +277,48 @@ class FlipkartConnectTests(TestCase):
                               "access_token": "app:secret"}, format="json")
         self.assertEqual(r.status_code, 201, r.content)
         self.assertEqual(r.json()["status"], "CONNECTED")
+
+
+class ImportProductsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="T")
+        self.api = client_for(make_user(self.tenant, "own", "OWNER"))
+        with mock.patch("marketplaces.adapters.shopify.ShopifyAdapter.health_check", return_value={}):
+            r = self.api.post("/api/v1/channels/connections", {"channel": "SHOPIFY", "name": "S",
+                              "shop_domain": "x.myshopify.com", "access_token": "shpat_z"}, format="json")
+        self.cid = r.json()["id"]
+        self.url = f"/api/v1/channels/connections/{self.cid}/import-products"
+
+    ROWS = [{"external_id": "11", "title": "Cap", "description": "d", "status": "ACTIVE",
+             "variants": [{"sku_code": "CAP-R", "name": "Red", "price": "199.00", "quantity": 5},
+                          {"sku_code": "", "name": "x", "price": "1", "quantity": 1}]},
+            {"external_id": "12", "title": "Tee", "description": "", "status": "DRAFT",
+             "variants": [{"sku_code": "TEE-M", "name": "M", "price": "abc", "quantity": 0}]}]
+
+    def test_import_creates_products_stock_listing_and_is_idempotent(self):
+        from catalog.models import SKU
+        from inventory.models import InventoryBalance
+        from marketplaces.models import ChannelListing
+        with mock.patch("marketplaces.adapters.shopify.ShopifyAdapter.fetch_products", return_value=self.ROWS):
+            r1 = self.api.post(self.url).json()
+            r2 = self.api.post(self.url).json()
+        self.assertEqual((r1["new"], r1["skipped_no_sku"], r1["failed"]), (2, 1, []))
+        self.assertEqual((r2["new"], r2["existing"]), (0, 2))
+        sku = SKU.objects.get(sku_code="CAP-R")
+        self.assertEqual(InventoryBalance.objects.get(sku=sku).on_hand, 5)
+        self.assertEqual(str(SKU.objects.get(sku_code="TEE-M").price), "0.00")
+        lst = ChannelListing.objects.get(product=sku.variant.product)
+        self.assertEqual((lst.external_product_id, lst.status), ("11", "ACTIVE"))
+        self.assertEqual(Product.objects.count(), 2)
+
+    def test_no_publish_job_queued_by_import_even_with_auto_publish(self):
+        from marketplaces.models import SyncJob
+        self.api.post(f"/api/v1/channels/connections/{self.cid}/auto-publish", {"enabled": True}, format="json")
+        with mock.patch("marketplaces.adapters.shopify.ShopifyAdapter.fetch_products", return_value=self.ROWS):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.api.post(self.url)
+        self.assertEqual(SyncJob.objects.count(), 0)
+
+    def test_demo_and_file_rejected(self):
+        d = self.api.post("/api/v1/channels/connections", {"channel": "DEMO", "name": "D", "access_token": "demo"}, format="json").json()["id"]
+        self.assertEqual(self.api.post(f"/api/v1/channels/connections/{d}/import-products").status_code, 400)

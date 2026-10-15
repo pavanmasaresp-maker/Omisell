@@ -132,6 +132,20 @@ class ConnectionViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin,
                                 for i in o["items"]]} for o in s.validated_data["orders"]]
         return Response(import_many(conn, rows))
 
+    @action(detail=True, methods=["post"], url_path="import-products")
+    def import_products_action(self, request, pk=None):
+        """Store ke maujooda products (SKU, price, stock) OmniSell mein laao."""
+        from .product_import import import_products
+        conn = self.get_object()
+        if conn.channel in (ChannelConnection.Channel.DEMO, ChannelConnection.Channel.FILE):
+            return Response({"error": "Ye channel store se products nahi laata."}, status=400)
+        if conn.status != ChannelConnection.Status.CONNECTED:
+            return Response({"error": "Channel connected nahi hai. Pehle Check again karo."}, status=400)
+        try:
+            return Response(import_products(conn, request.user))
+        except AdapterError as e:
+            return Response({"error": str(e)}, status=400)
+
     @action(detail=True, methods=["post"], url_path="simulate-order")
     def simulate_order(self, request, pk=None):
         """Sirf DEMO channel: marketplace se nakli order aaya, bilkul asli import raste se."""

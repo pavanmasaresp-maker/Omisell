@@ -190,3 +190,30 @@ class WooCommerceAdapter(MarketplaceAdapter):
             out.append({"external_order_id": str(o.get("number") or o["id"]), "customer_name": name,
                         "customer_phone": bill.get("phone", ""), "shipping_address": addr, "items": items})
         return out
+
+    def fetch_products(self):
+        out, page = [], 1
+        while len(out) < 200:
+            rows = self._request("GET", f"/products?per_page=50&page={page}&status=any")
+            if not rows:
+                break
+            for p in rows:
+                st = {"publish": "ACTIVE", "private": "ARCHIVED"}.get(p.get("status"), "DRAFT")
+                if p.get("type") == "variable":
+                    vs = [{"sku_code": (v.get("sku") or "").strip(), "name": "",
+                           "price": v.get("regular_price") or v.get("price") or "0",
+                           "quantity": v.get("stock_quantity") or 0}
+                          for v in self._request("GET", f"/products/{p['id']}/variations?per_page=100")]
+                    for v in vs:
+                        v["name"] = v["sku_code"]
+                else:
+                    vs = [{"sku_code": (p.get("sku") or "").strip(), "name": "Default",
+                           "price": p.get("regular_price") or p.get("price") or "0",
+                           "quantity": p.get("stock_quantity") or 0}]
+                out.append({"external_id": str(p["id"]), "title": p.get("name") or "",
+                            "description": html.unescape(p.get("short_description") or p.get("description") or "")[:2000],
+                            "status": st, "variants": vs})
+            if len(rows) < 50:
+                break
+            page += 1
+        return out[:200]

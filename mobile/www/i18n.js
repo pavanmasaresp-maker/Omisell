@@ -50,6 +50,7 @@
     ["Please wait…", null, "रुको…"],
     ["Try again", null, "फिर कोशिश करो"],
     // ---- dashboard ----
+    ["Import products", null, "प्रोडक्ट इम्पोर्ट करो"],
     ["7 din", "7 days", "7 दिन"], ["30 din", "30 days", "30 दिन"], ["Sab", "All", "सब"],
     ["Total sale", null, "कुल बिक्री"],
     ["Pieces", null, "पीस"], ["live", null, "लाइव"],
@@ -273,6 +274,7 @@
     ["Pehle koi product add karo, tabhi nakli order ban sakta hai.", "Add a product first, then a test order can be made.", "पहले कोई प्रोडक्ट जोड़ो, तभी टेस्ट ऑर्डर बन सकता है।"],
   ];
   const R = [
+    [/^(\d+) naye products aaye(.*)$/, "$1 new products imported$2", "$1 नए प्रोडक्ट आए$2"],
     [/^Charges: (.+)$/, null, "चार्जेस: $1"],
     [/^(\d+) order · (\d+) piece bika$/, "$1 orders · $2 pieces sold", "$1 ऑर्डर · $2 पीस बिके"],
     [/^(\d+) bika$/, "$1 sold", "$1 बिके"],

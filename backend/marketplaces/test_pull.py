@@ -35,3 +35,35 @@ class FetchOrdersTests(unittest.TestCase):
         self.assertEqual(out[0]["customer_name"], "Ravi S")
         self.assertEqual(out[0]["items"], [{"sku_code": "S-M", "quantity": 1, "unit_price": "499"}])
         self.assertEqual(out[0]["customer_phone"], "98765")
+
+
+class FetchProductsTests(unittest.TestCase):
+    def test_shopify_pages_and_normalizes(self):
+        a = ShopifyAdapter("s.myshopify.com", "shpat_x")
+        pages = [{"products": {"pageInfo": {"hasNextPage": True, "endCursor": "c1"}, "nodes": [
+                    {"id": "gid://shopify/Product/11", "title": "Cap", "description": "d", "status": "DRAFT",
+                     "variants": {"nodes": [{"sku": "CAP-R", "title": "Red", "price": "199.00", "inventoryQuantity": 5}]}}]}},
+                 {"products": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [
+                    {"id": "gid://shopify/Product/12", "title": "Tee", "description": "", "status": "ACTIVE",
+                     "variants": {"nodes": [{"sku": "", "title": "M", "price": "1", "inventoryQuantity": None}]}}]}}]
+        with mock.patch.object(a, "_graphql", side_effect=pages) as g:
+            out = a.fetch_products()
+        self.assertEqual([p["external_id"] for p in out], ["11", "12"])
+        self.assertEqual(out[0]["status"], "DRAFT")
+        self.assertEqual(out[0]["variants"][0], {"sku_code": "CAP-R", "name": "Red", "price": "199.00", "quantity": 5})
+        self.assertEqual(g.call_args_list[1][0][1]["after"], "c1")
+        self.assertEqual(out[1]["variants"][0]["quantity"], 0)
+
+    def test_woo_simple_and_variable(self):
+        a = WooCommerceAdapter("s.com", "k:s")
+        def req(method, path, body=None):
+            if path.startswith("/products?"):
+                return [{"id": 1, "name": "Mug", "type": "simple", "sku": "MUG", "regular_price": "99", "stock_quantity": 4, "status": "publish"},
+                        {"id": 2, "name": "Shirt", "type": "variable", "status": "draft"}]
+            return [{"sku": "SH-S", "regular_price": "300", "stock_quantity": 2}]
+        with mock.patch.object(a, "_request", side_effect=req):
+            out = a.fetch_products()
+        self.assertEqual(out[0]["status"], "ACTIVE")
+        self.assertEqual(out[0]["variants"][0]["quantity"], 4)
+        self.assertEqual(out[1]["variants"][0]["sku_code"], "SH-S")
+        self.assertEqual(out[1]["status"], "DRAFT")
