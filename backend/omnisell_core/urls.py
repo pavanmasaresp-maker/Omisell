@@ -23,3 +23,15 @@ urlpatterns = [
     path("api/v1/orders", include("orders.urls")),
     path("api/v1/", include("catalog.urls")),
 ]
+
+
+# --- health check (Sentinel) ---
+from django.http import JsonResponse
+from django.urls import path as _health_path
+
+
+def health(request):
+    return JsonResponse({"ok": True})
+
+
+urlpatterns = [_health_path("health", health), _health_path("health/", health)] + list(urlpatterns)
